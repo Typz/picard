@@ -79,6 +79,8 @@ class CoverArtBox(QtGui.QGroupBox):
         self.release = None
         self.data = None
         self.item = None
+        self.metadata = None
+        self.currentImage = 0
         self.shadow = QtGui.QPixmap(":/images/CoverArtShadow.png")
         self.coverArt = ActiveLabel(False, parent)
         self.coverArt.setPixmap(self.shadow)
@@ -92,7 +94,7 @@ class CoverArtBox(QtGui.QGroupBox):
         self.selectorlayout = QtGui.QHBoxLayout()
         self.prevCoverArt = QtGui.QToolButton(parent)
         self.prevCoverArt.setText("<")
-        self.prevCoverArt.clicked.connect(lambda : self.__select_image(self.pos - 1))
+        self.prevCoverArt.clicked.connect(lambda : self.__select_image(self.currentImage - 1))
         self.prevCoverArt.hide()
         self.covertArtCount = QtGui.QLabel()
         self.covertArtCount.setText("")
@@ -100,7 +102,7 @@ class CoverArtBox(QtGui.QGroupBox):
         self.covertArtCount.setSizePolicy(QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Fixed)
         self.nextCoverArt = QtGui.QToolButton()
         self.nextCoverArt.setText(">")
-        self.nextCoverArt.clicked.connect(lambda : self.__select_image(self.pos + 1))
+        self.nextCoverArt.clicked.connect(lambda : self.__select_image(self.currentImage + 1))
         self.nextCoverArt.hide()
         self.selectorlayout.addWidget(self.prevCoverArt)
         self.selectorlayout.addWidget(self.covertArtCount)
@@ -150,14 +152,14 @@ class CoverArtBox(QtGui.QGroupBox):
     def set_metadata(self, metadata, item):
         self.item = item
         self.metadata = metadata
-        self.pos = 0
+        self.currentImage = 0
         data = None
         if metadata and metadata.images:
             for image in metadata.images:
                 if is_front_image(image):
                     data = image
                     break
-                self.pos = self.pos + 1
+                self.currentImage += 1
             else:
                 # There's no front image, choose the first one available
                 data = metadata.images[0]
@@ -183,16 +185,16 @@ class CoverArtBox(QtGui.QGroupBox):
         if self.metadata and self.metadata.images:
             count = len(self.metadata.images)
         self.removeCoverArt.setVisible(count > 0)
-        self.covertArtCount.setText(str(self.pos + 1) + "/" + str(count))
+        self.covertArtCount.setText(str(self.currentImage + 1) + "/" + str(count))
         self.covertArtCount.setVisible(count > 1)
         self.prevCoverArt.setVisible(count > 1)
         self.nextCoverArt.setVisible(count > 1)
 
-    def __select_image(self, pos):
+    def __select_image(self, index):
         metadata = self.metadata
-        if metadata and metadata.images and pos >= 0 and pos < len(metadata.images):
-            self.pos = pos
-            self.__set_data(metadata.images[pos])
+        if metadata and metadata.images and index >= 0 and index < len(metadata.images):
+            self.currentImage = index
+            self.__set_data(metadata.images[index])
             self.__update_image_count()
 
     def open_release_page(self):
@@ -234,23 +236,23 @@ class CoverArtBox(QtGui.QGroupBox):
     def remove_image(self):
         if isinstance(self.item, Album):
             album = self.item
-            album.metadata.remove_image(self.pos)
+            album.metadata.remove_image(self.currentImage)
             for track in album.tracks:
-                track.metadata.remove_image(self.pos)
+                track.metadata.remove_image(self.currentImage)
             for file in album.iterfiles():
-                file.metadata.remove_image(self.pos)
+                file.metadata.remove_image(self.currentImage)
         elif isinstance(self.item, Track):
             track = self.item
-            track.metadata.remove_image(self.pos)
+            track.metadata.remove_image(self.currentImage)
             for file in track.iterfiles():
-                file.metadata.remove_image(self.pos)
+                file.metadata.remove_image(self.currentImage)
         elif isinstance(self.item, File):
             file = self.item
-            file.metadata.remove_image(self.pos)
-        if self.pos < len(self.metadata.images):
-            self.__select_image(self.pos)
+            file.metadata.remove_image(self.currentImage)
+        if self.currentImage < len(self.metadata.images):
+            self.__select_image(self.currentImage)
         elif self.metadata.images:
-            self.__select_image(self.pos - 1)
+            self.__select_image(self.currentImage - 1)
         else:
             self.__set_data(None)
             self.__update_image_count()
@@ -276,5 +278,5 @@ class CoverArtBox(QtGui.QGroupBox):
         elif isinstance(self.item, File):
             file = self.item
             file.metadata.add_image(mime, data)
-        self.pos = len(self.metadata.images) - 1
+        self.currentImage = len(self.metadata.images) - 1
         self.__update_image_count()
