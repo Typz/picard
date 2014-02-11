@@ -38,7 +38,7 @@ class ActiveLabel(QtGui.QLabel):
         QtGui.QLabel.__init__(self, *args)
         self.setMargin(0)
         self.setActive(active)
-        self.setAcceptDrops(True)
+        self.setAcceptDrops(False)
 
     def setActive(self, active):
         self.active = active
@@ -52,8 +52,10 @@ class ActiveLabel(QtGui.QLabel):
             self.clicked.emit()
 
     def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
+        for url in event.mimeData().urls():
+            if url.scheme() in ('http', 'file'):
+                event.acceptProposedAction()
+                break
 
     def dropEvent(self, event):
         accepted = False
@@ -161,6 +163,10 @@ class CoverArtBox(QtGui.QGroupBox):
                 data = metadata.images[0]
         self.__set_data(data)
         self.__update_image_count()
+        if item and metadata:
+            self.coverArt.setAcceptDrops(True)
+        else:
+            self.coverArt.setAcceptDrops(False)
         release = None
         if metadata:
             release = metadata.get("musicbrainz_albumid", None)
