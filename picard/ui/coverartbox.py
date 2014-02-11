@@ -87,6 +87,23 @@ class CoverArtBox(QtGui.QGroupBox):
         self.coverArtLabel = QtGui.QLabel(parent)
         self.layout.addWidget(self.coverArtLabel, 0)
         self.layout.addStretch()
+        self.selectorlayout = QtGui.QHBoxLayout()
+        self.prevCoverArt = QtGui.QToolButton(parent)
+        self.prevCoverArt.setText("<")
+        self.prevCoverArt.clicked.connect(lambda : self.__select_image(self.pos - 1))
+        self.prevCoverArt.hide()
+        self.covertArtCount = QtGui.QLabel()
+        self.covertArtCount.setText("")
+        self.covertArtCount.setAlignment(QtCore.Qt.AlignHCenter)
+        self.covertArtCount.setSizePolicy(QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Fixed)
+        self.nextCoverArt = QtGui.QToolButton()
+        self.nextCoverArt.setText(">")
+        self.nextCoverArt.clicked.connect(lambda : self.__select_image(self.pos + 1))
+        self.nextCoverArt.hide()
+        self.selectorlayout.addWidget(self.prevCoverArt)
+        self.selectorlayout.addWidget(self.covertArtCount)
+        self.selectorlayout.addWidget(self.nextCoverArt)
+        self.layout.addItem(self.selectorlayout)
         self.setLayout(self.layout)
 
     def show(self):
@@ -124,16 +141,20 @@ class CoverArtBox(QtGui.QGroupBox):
 
     def set_metadata(self, metadata, item):
         self.item = item
+        self.metadata = metadata
+        self.pos = 0
         data = None
         if metadata and metadata.images:
             for image in metadata.images:
                 if is_front_image(image):
                     data = image
                     break
+                self.pos = self.pos + 1
             else:
                 # There's no front image, choose the first one available
                 data = metadata.images[0]
         self.__set_data(data)
+        self.__update_image_count()
         release = None
         if metadata:
             release = metadata.get("musicbrainz_albumid", None)
@@ -144,6 +165,22 @@ class CoverArtBox(QtGui.QGroupBox):
             self.coverArt.setActive(False)
             self.coverArt.setToolTip("")
         self.release = release
+
+    def __update_image_count(self):
+        count = 0
+        if self.metadata and self.metadata.images:
+            count = len(self.metadata.images)
+        self.covertArtCount.setText(str(self.pos + 1) + "/" + str(count))
+        self.covertArtCount.setVisible(count > 1)
+        self.prevCoverArt.setVisible(count > 1)
+        self.nextCoverArt.setVisible(count > 1)
+
+    def __select_image(self, pos):
+        metadata = self.metadata
+        if metadata and metadata.images and pos >= 0 and pos < len(metadata.images):
+            self.pos = pos
+            self.__set_data(metadata.images[pos])
+            self.__update_image_count()
 
     def open_release_page(self):
         host = config.setting["server_host"]
@@ -198,3 +235,5 @@ class CoverArtBox(QtGui.QGroupBox):
         elif isinstance(self.item, File):
             file = self.item
             file.metadata.add_image(mime, data)
+        self.pos = len(self.metadata.images) - 1
+        self.__update_image_count()
