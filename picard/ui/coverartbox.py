@@ -84,6 +84,9 @@ class CoverArtBox(QtGui.QGroupBox):
         self.coverArt.clicked.connect(self.open_release_page)
         self.coverArt.imageDropped.connect(self.fetch_remote_image)
         self.layout.addWidget(self.coverArt, 0)
+        self.coverArtLabel = QtGui.QLabel(parent)
+        self.layout.addWidget(self.coverArtLabel, 0)
+        self.layout.addStretch()
         self.setLayout(self.layout)
 
     def show(self):
@@ -99,11 +102,13 @@ class CoverArtBox(QtGui.QGroupBox):
             return
 
         cover = self.shadow
+        label = ""
         if self.data:
             if pixmap is None:
                 pixmap = QtGui.QPixmap()
                 pixmap.loadFromData(self.data["data"])
             if not pixmap.isNull():
+                label = str(pixmap.width()) + " x " + str(pixmap.height())
                 offx, offy, w, h = (1, 1, 121, 121)
                 cover = QtGui.QPixmap(self.shadow)
                 pixmap = pixmap.scaled(w, h, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
@@ -115,6 +120,7 @@ class CoverArtBox(QtGui.QGroupBox):
                 painter.drawPixmap(x, y, pixmap)
                 painter.end()
         self.coverArt.setPixmap(cover)
+        self.coverArtLabel.setText(label)
 
     def set_metadata(self, metadata, item):
         self.item = item
