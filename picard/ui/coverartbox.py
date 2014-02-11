@@ -103,6 +103,12 @@ class CoverArtBox(QtGui.QGroupBox):
         self.selectorlayout.addWidget(self.prevCoverArt)
         self.selectorlayout.addWidget(self.covertArtCount)
         self.selectorlayout.addWidget(self.nextCoverArt)
+        self.removeCoverArt = QtGui.QToolButton(parent)
+        self.removeCoverArt.setText("x")
+        self.removeCoverArt.setToolTip(_(u"Remove artwork"))
+        self.removeCoverArt.clicked.connect(self.remove_image)
+        self.removeCoverArt.hide()
+        self.selectorlayout.addWidget(self.removeCoverArt, 0)
         self.layout.addItem(self.selectorlayout)
         self.setLayout(self.layout)
 
@@ -170,6 +176,7 @@ class CoverArtBox(QtGui.QGroupBox):
         count = 0
         if self.metadata and self.metadata.images:
             count = len(self.metadata.images)
+        self.removeCoverArt.setVisible(count > 0)
         self.covertArtCount.setText(str(self.pos + 1) + "/" + str(count))
         self.covertArtCount.setVisible(count > 1)
         self.prevCoverArt.setVisible(count > 1)
@@ -213,6 +220,30 @@ class CoverArtBox(QtGui.QGroupBox):
             log.warning("Can't load image with MIME-Type %s", mime)
             return
         return self.load_remote_image(mime, data)
+
+    def remove_image(self):
+        if isinstance(self.item, Album):
+            album = self.item
+            album.metadata.remove_image(self.pos)
+            for track in album.tracks:
+                track.metadata.remove_image(self.pos)
+            for file in album.iterfiles():
+                file.metadata.remove_image(self.pos)
+        elif isinstance(self.item, Track):
+            track = self.item
+            track.metadata.remove_image(self.pos)
+            for file in track.iterfiles():
+                file.metadata.remove_image(self.pos)
+        elif isinstance(self.item, File):
+            file = self.item
+            file.metadata.remove_image(self.pos)
+        if self.pos < len(self.metadata.images):
+            self.__select_image(self.pos)
+        elif self.metadata.images:
+            self.__select_image(self.pos - 1)
+        else:
+            self.__set_data(None)
+            self.__update_image_count()
 
     def load_remote_image(self, mime, data):
         pixmap = QtGui.QPixmap()
