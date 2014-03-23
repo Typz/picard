@@ -221,6 +221,7 @@ class BaseTreeView(QtGui.QTreeWidget):
         self.setDragEnabled(True)
         self.setDropIndicatorShown(True)
         self.setSelectionMode(QtGui.QAbstractItemView.ExtendedSelection)
+        self.setIconSize(icontheme.get_size(icontheme.ICON_SIZE_MENU));
 
         # enable sorting, but don't actually use it by default
         # XXX it would be nice to be able to go to the 'no sort' mode, but the

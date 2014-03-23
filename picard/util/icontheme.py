@@ -19,7 +19,7 @@
 
 import sys
 import os.path
-from PyQt4 import QtGui
+from PyQt4 import QtCore, QtGui
 
 if sys.platform == 'win32':
     _search_paths = []
@@ -41,6 +41,9 @@ ICON_SIZE_MENU = ('16x16',)
 ICON_SIZE_TOOLBAR = ('22x22',)
 ICON_SIZE_ALL = ('22x22', '16x16')
 
+
+def get_size(size=ICON_SIZE_MENU):
+    return QtCore.QSize(*(int(x) for x in size[0].split("x")));
 
 def lookup(name, size=ICON_SIZE_ALL):
     icon = QtGui.QIcon()

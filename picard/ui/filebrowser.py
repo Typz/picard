@@ -23,7 +23,7 @@ import sys
 from PyQt4 import QtCore, QtGui
 from picard import config
 from picard.formats import supported_formats
-from picard.util import find_existing_path
+from picard.util import find_existing_path, icontheme
 
 
 class FileBrowser(QtGui.QTreeView):
@@ -49,6 +49,7 @@ class FileBrowser(QtGui.QTreeView):
         self.set_as_starting_directory_action.triggered.connect(self.set_as_starting_directory)
         self.addAction(self.set_as_starting_directory_action)
         self.setContextMenuPolicy(QtCore.Qt.ActionsContextMenu)
+        self.setIconSize(icontheme.get_size(icontheme.ICON_SIZE_MENU));
         self.focused = False
         self._set_model()
 
