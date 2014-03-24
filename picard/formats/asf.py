@@ -107,6 +107,7 @@ class ASFFile(File):
         'albumartistsort': 'WM/AlbumArtistSortOrder',
         'artistsort': 'WM/ArtistSortOrder',
         'titlesort': 'WM/TitleSortOrder',
+        'composersort': 'WM/ComposerSortOrder',
         'musicbrainz_recordingid': 'MusicBrainz/Track Id',
         'musicbrainz_trackid': 'MusicBrainz/Release Track Id',
         'musicbrainz_albumid': 'MusicBrainz/Album Id',
@@ -128,6 +129,7 @@ class ASFFile(File):
         'djmixer': 'WM/DJMixer',
         'mixer': 'WM/Mixer',
         'artists': 'WM/ARTISTS',
+        'work': 'WM/Work',
     }
     __RTRANS = dict([(b, a) for a, b in __TRANS.items()])
 

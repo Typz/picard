@@ -14,6 +14,7 @@ from picard import __version__
 if sys.version_info < (2, 6):
     print "*** You need Python 2.6 or higher to use Picard."
 
+
 args = {}
 
 
@@ -90,6 +91,10 @@ class picard_test(Command):
 
     def run(self):
         import unittest
+        import sip
+
+        sip.setapi("QString", 2)
+        sip.setapi("QVariant", 2)
 
         names = []
         for filename in glob.glob("test/test_*.py"):

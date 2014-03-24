@@ -223,10 +223,10 @@ class CoverArtBox(QtGui.QGroupBox):
                 self.load_remote_image(mime, data)
 
     def on_remote_image_fetched(self, data, reply, error):
-        mime = str(reply.header(QtNetwork.QNetworkRequest.ContentTypeHeader).toString())
+        mime = reply.header(QtNetwork.QNetworkRequest.ContentTypeHeader)
         if mime in ('image/jpeg', 'image/png'):
-            return self.load_remote_image(mime, data)
-        if reply.url().hasQueryItem("imgurl"):
+            self.load_remote_image(mime, data)
+        elif reply.url().hasQueryItem("imgurl"):
             #This may be a google images result, try to get the URL which is encoded in the query
             url = QtCore.QUrl(reply.url().queryItemValue("imgurl"))
             self.fetch_remote_image(url)

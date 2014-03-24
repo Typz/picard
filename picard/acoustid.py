@@ -97,18 +97,24 @@ class AcoustIDClient(QtCore.QObject):
         acoustid_el = metadata_el.append_child('acoustid')
         recording_list_el = acoustid_el.append_child('recording_list')
 
-        status = document.response[0].status[0].text
-        if status == 'ok':
-            results = document.response[0].results[0].children.get('result')
-            if results:
-                result = results[0]
-                file.metadata['acoustid_id'] = result.id[0].text
-                if 'recordings' in result.children:
-                    for recording in result.recordings[0].recording:
-                        parse_recording(recording)
+        if error:
+            log.error("AcoustID: Lookup network error for '%s': %r", file.filename, unicode(http.errorString()))
+            self.tagger.window.set_statusbar_message(N_("AcoustID lookup network error for '%s'!"), file.filename)
         else:
-            error_message = document.response[0].error[0].message[0].text
-            log.error("Fingerprint lookup failed: %r", error_message)
+            status = document.response[0].status[0].text
+            if status == 'ok':
+                results = document.response[0].results[0].children.get('result')
+                if results:
+                    result = results[0]
+                    file.metadata['acoustid_id'] = result.id[0].text
+                    if 'recordings' in result.children:
+                        for recording in result.recordings[0].recording:
+                            parse_recording(recording)
+                        log.debug("AcoustID: Lookup successful for '%s'", file.filename)
+            else:
+                error_message = document.response[0].error[0].message[0].text
+                log.error("AcoustID: Lookup error for '%s': %r", file.filename, error_message)
+                self.tagger.window.set_statusbar_message(N_("AcoustID lookup failed for '%s'!"), file.filename)
 
         next(doc, http, error)
 
@@ -119,7 +125,7 @@ class AcoustIDClient(QtCore.QObject):
             # The file has been removed. do nothing
             return
         if not result:
-            self.tagger.window.set_statusbar_message(N_("Could not find AcoustID for file %s"), file.filename)
+            self.tagger.window.set_statusbar_message(N_("Acoustid lookup returned no result for file '%s'"), file.filename)
             file.clear_pending()
             return
         self.tagger.window.set_statusbar_message(
@@ -139,10 +145,10 @@ class AcoustIDClient(QtCore.QObject):
 
     def _on_fpcalc_finished(self, next, file, exit_code, exit_status):
         process = self.sender()
-        finished = process.property('picard_finished').toBool()
+        finished = process.property('picard_finished')
         if finished:
             return
-        process.setProperty('picard_finished', QtCore.QVariant(True))
+        process.setProperty('picard_finished', True)
         result = None
         try:
             self._running -= 1
@@ -172,7 +178,7 @@ class AcoustIDClient(QtCore.QObject):
         finished = process.property('picard_finished').toBool()
         if finished:
             return
-        process.setProperty('picard_finished', QtCore.QVariant(True))
+        process.setProperty('picard_finished', True)
         try:
             self._running -= 1
             self._run_next_task()
@@ -188,7 +194,7 @@ class AcoustIDClient(QtCore.QObject):
         fpcalc = config.setting["acoustid_fpcalc"] or "fpcalc"
         self._running += 1
         process = QtCore.QProcess(self)
-        process.setProperty('picard_finished', QtCore.QVariant(False))
+        process.setProperty('picard_finished', False)
         process.finished.connect(partial(self._on_fpcalc_finished, next, file))
         process.error.connect(partial(self._on_fpcalc_error, next, file))
         process.start(fpcalc, ["-length", "120", file.filename])

@@ -33,6 +33,7 @@ TAG_NAMES = {
     'artistsort': N_('Artist Sort Order'),
     'titlesort': N_('Title Sort Order'),
     'albumsort': N_('Album Sort Order'),
+    'composersort': N_('Composer Sort Order'),
     'asin': N_('ASIN'),
     'grouping': N_('Grouping'),
     'version': N_('Version'),
@@ -80,13 +81,14 @@ TAG_NAMES = {
     'format': N_('Format'),
     'djmixer': N_('DJ-Mixer'),
     'media': N_('Media'),
-    'lyrics:': N_('Lyrics'),
+    'lyrics': N_('Lyrics'),
     'mixer': N_('Mixer'),
     'language': N_('Language'),
     'script': N_('Script'),
     '~length': N_('Length'),
     '~rating': N_('Rating'),
     'artists': N_('Artists'),
+    'work': N_('Work'),
 }
 
 

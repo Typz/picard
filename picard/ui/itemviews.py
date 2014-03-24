@@ -87,7 +87,7 @@ def get_match_color(similarity, basecolor):
 class MainPanel(QtGui.QSplitter):
 
     options = [
-        config.Option("persist", "splitter_state", QtCore.QByteArray(), QtCore.QVariant.toByteArray),
+        config.Option("persist", "splitter_state", QtCore.QByteArray()),
     ]
 
     columns = [
@@ -202,10 +202,10 @@ class MainPanel(QtGui.QSplitter):
 class BaseTreeView(QtGui.QTreeWidget):
 
     options = [
-        config.Option("setting", "color_modified", QtGui.QColor(QtGui.QPalette.WindowText), QtGui.QColor),
-        config.Option("setting", "color_saved", QtGui.QColor(0, 128, 0), QtGui.QColor),
-        config.Option("setting", "color_error", QtGui.QColor(200, 0, 0), QtGui.QColor),
-        config.Option("setting", "color_pending", QtGui.QColor(128, 128, 128), QtGui.QColor),
+        config.Option("setting", "color_modified", QtGui.QColor(QtGui.QPalette.WindowText)),
+        config.Option("setting", "color_saved", QtGui.QColor(0, 128, 0)),
+        config.Option("setting", "color_error", QtGui.QColor(200, 0, 0)),
+        config.Option("setting", "color_pending", QtGui.QColor(128, 128, 128)),
     ]
 
     def __init__(self, window, parent=None):
@@ -296,13 +296,42 @@ class BaseTreeView(QtGui.QTreeWidget):
             menu.addSeparator()
             menu.addMenu(releases_menu)
             loading = releases_menu.addAction(_('Loading...'))
-            loading.setEnabled(False)
+            loading.setDisabled(True)
             bottom_separator = True
 
             if len(self.selectedIndexes()) == len(MainPanel.columns):
                 def _add_other_versions():
                     releases_menu.removeAction(loading)
-                    for version in obj.release_group.versions:
+                    heading = releases_menu.addAction(obj.release_group.version_headings)
+                    heading.setDisabled(True)
+                    font = heading.font()
+                    font.setBold(True)
+                    heading.setFont(font)
+
+                    versions = obj.release_group.versions
+
+                    albumtracks = obj.get_num_total_files() if obj.get_num_total_files() else len(obj.tracks)
+                    preferred_countries = set(config.setting["preferred_release_countries"])
+                    preferred_formats = set(config.setting["preferred_release_formats"])
+                    matches = ("trackmatch", "countrymatch", "formatmatch")
+                    priorities = {}
+                    for version in versions:
+                        priority = {
+                            "trackmatch": "0" if version['totaltracks'] == albumtracks else "?",
+                            "countrymatch": "0" if len(preferred_countries) == 0 or preferred_countries & set(version['countries']) else "?",
+                            "formatmatch": "0" if len(preferred_formats) == 0 or preferred_formats & set(version['formats']) else "?",
+                        }
+                        priorities[version['id']] = "".join(priority[k] for k in matches)
+                    versions.sort(key=lambda version: priorities[version['id']] + version['name'])
+
+                    priority = normal = False
+                    for version in versions:
+                        if not normal and "?" in priorities[version['id']]:
+                            if priority:
+                                releases_menu.addSeparator()
+                            normal = True
+                        else:
+                            priority = True
                         action = releases_menu.addAction(version["name"])
                         action.setCheckable(True)
                         if obj.id == version["id"]:
@@ -577,7 +606,7 @@ class TreeItem(QtGui.QTreeWidgetItem):
         column = self.treeWidget().sortColumn()
         if column == 1:
             return (self.obj.metadata.length or 0) < (other.obj.metadata.length or 0)
-        return self.text(column).toLower() < other.text(column).toLower()
+        return self.text(column).lower() < other.text(column).lower()
 
 
 class ClusterItem(TreeItem):
