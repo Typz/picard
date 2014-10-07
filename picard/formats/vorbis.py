@@ -31,9 +31,10 @@ except ImportError:
     OggOpus = None
     with_opus = False
 from picard import config, log
+from picard.coverart.image import TagCoverArtImage, CoverArtImageError
 from picard.file import File
-from picard.formats.id3 import image_type_from_id3_num, image_type_as_id3_num
-from picard.metadata import Metadata, save_this_image_to_tags
+from picard.formats.id3 import types_from_id3, image_type_as_id3_num
+from picard.metadata import Metadata
 from picard.util import encode_filename, sanitize_date
 
 
@@ -96,29 +97,54 @@ class VCommentFile(File):
                     name = "totaldiscs"
                 elif name == "metadata_block_picture":
                     image = mutagen.flac.Picture(base64.standard_b64decode(value))
-                    extras = {
-                        'desc': image.desc,
-                        'type': image_type_from_id3_num(image.type)
-                    }
-                    metadata.add_image(image.mime, image.data, extras=extras)
+                    try:
+                        coverartimage = TagCoverArtImage(
+                            file=filename,
+                            tag=name,
+                            types=types_from_id3(image.type),
+                            comment=image.desc,
+                            support_types=True,
+                            data=image.data,
+                        )
+                    except CoverArtImageError as e:
+                        log.error('Cannot load image from %r: %s' % (filename, e))
+                    else:
+                        metadata.append_image(coverartimage)
+
                     continue
                 elif name in self.__translate:
                     name = self.__translate[name]
                 metadata.add(name, value)
         if self._File == mutagen.flac.FLAC:
             for image in file.pictures:
-                extras = {
-                    'desc': image.desc,
-                    'type': image_type_from_id3_num(image.type)
-                }
-                metadata.add_image(image.mime, image.data, extras=extras)
+                try:
+                    coverartimage = TagCoverArtImage(
+                        file=filename,
+                        tag='FLAC/PICTURE',
+                        types=types_from_id3(image.type),
+                        comment=image.desc,
+                        support_types=True,
+                        data=image.data,
+                    )
+                except CoverArtImageError as e:
+                    log.error('Cannot load image from %r: %s' % (filename, e))
+                else:
+                     metadata.append_image(coverartimage)
+
         # Read the unofficial COVERART tags, for backward compatibillity only
         if not "metadata_block_picture" in file.tags:
             try:
-                for index, data in enumerate(file["COVERART"]):
-                    metadata.add_image(file["COVERARTMIME"][index],
-                                       base64.standard_b64decode(data)
-                                       )
+                for data in file["COVERART"]:
+                    try:
+                        coverartimage = TagCoverArtImage(
+                            file=filename,
+                            tag='COVERART',
+                            data=base64.standard_b64decode(data)
+                        )
+                    except CoverArtImageError as e:
+                        log.error('Cannot load image from %r: %s' % (filename, e))
+                    else:
+                        metadata.append_image(coverartimage)
             except KeyError:
                 pass
         self._info(metadata, file)
@@ -127,14 +153,14 @@ class VCommentFile(File):
     def _save(self, filename, metadata):
         """Save metadata to the file."""
         log.debug("Saving file %r", filename)
+        is_flac = self._File == mutagen.flac.FLAC
         file = self._File(encode_filename(filename))
         if file.tags is None:
             file.add_tags()
         if config.setting["clear_existing_tags"]:
             file.tags.clear()
-        if self._File == mutagen.flac.FLAC and (
-            config.setting["clear_existing_tags"] or
-            (config.setting['save_images_to_tags'] and metadata.images)):
+        if (is_flac and (config.setting["clear_existing_tags"] or
+                         metadata.images_to_be_saved_to_tags)):
             file.clear_pictures()
         tags = {}
         for name, value in metadata.items():
@@ -170,23 +196,21 @@ class VCommentFile(File):
         if "totaldiscs" in metadata:
             tags.setdefault(u"DISCTOTAL", []).append(metadata["totaldiscs"])
 
-        if config.setting['save_images_to_tags']:
-            for image in metadata.images:
-                if not save_this_image_to_tags(image):
-                    continue
-                picture = mutagen.flac.Picture()
-                picture.data = image["data"]
-                picture.mime = image["mime"]
-                picture.desc = image['desc']
-                picture.type = image_type_as_id3_num(image['type'])
-                if self._File == mutagen.flac.FLAC:
-                    file.add_picture(picture)
-                else:
-                    tags.setdefault(u"METADATA_BLOCK_PICTURE", []).append(
-                        base64.standard_b64encode(picture.write()))
+        for image in metadata.images_to_be_saved_to_tags:
+            picture = mutagen.flac.Picture()
+            picture.data = image.data
+            picture.mime = image.mimetype
+            picture.desc = image.comment
+            picture.type = image_type_as_id3_num(image.maintype)
+            if self._File == mutagen.flac.FLAC:
+                file.add_picture(picture)
+            else:
+                tags.setdefault(u"METADATA_BLOCK_PICTURE", []).append(
+                    base64.standard_b64encode(picture.write()))
+
         file.tags.update(tags)
         kwargs = {}
-        if self._File == mutagen.flac.FLAC and config.setting["remove_id3_from_flac"]:
+        if is_flac and config.setting["remove_id3_from_flac"]:
             kwargs["deleteid3"] = True
         try:
             file.save(**kwargs)
@@ -266,9 +290,8 @@ class OggOpusFile(VCommentFile):
         metadata['~format'] = self.NAME
 
 
-def OggAudioFile(filename):
-    """Generic Ogg audio file."""
-    options = [OggFLACFile, OggSpeexFile, OggVorbisFile]
+def _select_ogg_type(filename, options):
+    """Select the best matching Ogg file type."""
     fileobj = file(filename, "rb")
     results = []
     try:
@@ -283,5 +306,21 @@ def OggAudioFile(filename):
         raise mutagen.ogg.error("unknown Ogg audio format")
     return results[-1][2](filename)
 
+
+def OggAudioFile(filename):
+    """Generic Ogg audio file."""
+    options = [OggFLACFile, OggSpeexFile, OggVorbisFile]
+    return _select_ogg_type(filename, options)
+
+
 OggAudioFile.EXTENSIONS = [".oga"]
 OggAudioFile.NAME = "Ogg Audio"
+
+
+def OggVideoFile(filename):
+    """Generic Ogg video file."""
+    options = [OggTheoraFile]
+    return _select_ogg_type(filename, options)
+
+OggVideoFile.EXTENSIONS = [".ogv"]
+OggVideoFile.NAME = "Ogg Video"

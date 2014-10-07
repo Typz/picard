@@ -36,16 +36,18 @@ from picard.util import (
     decode_filename,
     encode_filename,
     format_time,
-    mimetype,
     pathcmp,
-    replace_non_ascii,
     replace_win32_incompat,
     sanitize_filename,
     thread,
     tracknum_from_filename,
+)
+from picard.util.textencoding import (
+    replace_non_ascii,
     unaccent,
 )
 from picard.util.filenaming import make_short_filename
+from picard.util.tags import PRESERVED_TAGS
 
 
 class File(QtCore.QObject, Item):
@@ -88,6 +90,10 @@ class File(QtCore.QObject, Item):
     def __repr__(self):
         return '<File %r>' % self.base_filename
 
+    @property
+    def new_metadata(self):
+        return self.metadata
+
     def load(self, callback):
         thread.run_task(
             partial(self._load, self.filename),
@@ -115,21 +121,22 @@ class File(QtCore.QObject, Item):
         if 'tracknumber' not in metadata:
             tracknumber = tracknum_from_filename(self.base_filename)
             if tracknumber != -1:
-                metadata['tracknumber'] = str(tracknumber)
+                tracknumber = str(tracknumber)
+                metadata['tracknumber'] = tracknumber
+                if metadata['title'] == filename:
+                    stripped_filename = filename.lstrip('0')
+                    tnlen = len(tracknumber)
+                    if stripped_filename[:tnlen] == tracknumber:
+                        metadata['title'] = stripped_filename[tnlen:].lstrip()
         self.orig_metadata = metadata
         self.metadata.copy(metadata)
-
-    _default_preserved_tags = [
-        "~bitrate", "~bits_per_sample", "~format", "~channels", "~filename",
-        "~dirname", "~extension"
-    ]
 
     def copy_metadata(self, metadata):
         acoustid = self.metadata["acoustid_id"]
         preserve = config.setting["preserved_tags"].strip()
         saved_metadata = {}
 
-        for tag in re.split(r"\s*,\s*", preserve) + File._default_preserved_tags:
+        for tag in re.split(r"\s*,\s*", preserve) + PRESERVED_TAGS:
             values = self.orig_metadata.getall(tag)
             if values:
                 saved_metadata[tag] = values
@@ -218,9 +225,9 @@ class File(QtCore.QObject, Item):
                 temp_info[info] = self.orig_metadata[info]
             # Data is copied from New to Original because New may be a subclass to handle id3v23
             if config.setting["clear_existing_tags"]:
-                self.orig_metadata.copy(self.metadata)
+                self.orig_metadata.copy(self.new_metadata)
             else:
-                self.orig_metadata.update(self.metadata)
+                self.orig_metadata.update(self.new_metadata)
             self.orig_metadata.length = length
             self.orig_metadata['~length'] = format_time(length)
             for k, v in temp_info.items():
@@ -268,17 +275,24 @@ class File(QtCore.QObject, Item):
                 new_dirname = os.path.normpath(os.path.join(os.path.dirname(filename), new_dirname))
         else:
             new_dirname = os.path.dirname(filename)
-        new_filename, ext = os.path.splitext(os.path.basename(filename))
+        new_filename = os.path.basename(filename)
 
         if settings["rename_files"]:
+            new_filename, ext = os.path.splitext(new_filename)
+            ext = ext.lower()
+            new_filename = new_filename + ext
+
             # expand the naming format
             format = settings['file_naming_format']
             if len(format) > 0:
                 new_filename = self._script_to_filename(format, metadata, settings)
+                # NOTE: the _script_to_filename strips the extension away
+                new_filename = new_filename + ext
                 if not settings['move_files']:
                     new_filename = os.path.basename(new_filename)
                 new_filename = make_short_filename(new_dirname, new_filename,
-                        config.setting['windows_compatibility'], config.setting['windows_compatibility_drive_root'])
+                                                   config.setting['windows_compatibility'],
+                                                   config.setting['windows_compatibility_drive_root'])
                 # TODO: move following logic under util.filenaming
                 # (and reconsider its necessity)
                 # win32 compatibility fixes
@@ -291,7 +305,8 @@ class File(QtCore.QObject, Item):
                 # Fix for precomposed characters on OSX
                 if sys.platform == "darwin":
                     new_filename = unicodedata.normalize("NFD", unicode(new_filename))
-        return os.path.realpath(os.path.join(new_dirname, new_filename + ext.lower()))
+
+        return os.path.realpath(os.path.join(new_dirname, new_filename))
 
     def _rename(self, old_filename, metadata):
         new_filename, ext = os.path.splitext(
@@ -314,60 +329,13 @@ class File(QtCore.QObject, Item):
         shutil.move(encode_filename(old_filename), encode_filename(new_filename))
         return new_filename
 
-    def _make_image_filename(self, image_filename, dirname, metadata):
-        image_filename = self._script_to_filename(image_filename, metadata)
-        if not image_filename:
-            image_filename = "cover"
-        if os.path.isabs(image_filename):
-            filename = image_filename
-        else:
-            filename = os.path.join(dirname, image_filename)
-        if config.setting['windows_compatibility'] or sys.platform == 'win32':
-            filename = filename.replace('./', '_/').replace('.\\', '_\\')
-        return encode_filename(filename)
-
     def _save_images(self, dirname, metadata):
         """Save the cover images to disk."""
         if not metadata.images:
             return
-        default_filename = self._make_image_filename(
-            config.setting["cover_image_filename"], dirname, metadata)
-        overwrite = config.setting["save_images_overwrite"]
         counters = defaultdict(lambda: 0)
         for image in metadata.images:
-            filename = image["filename"]
-            data = image["data"]
-            mime = image["mime"]
-            if filename is None:
-                filename = default_filename
-            else:
-                filename = self._make_image_filename(filename, dirname, metadata)
-            image_filename = filename
-            ext = mimetype.get_extension(mime, ".jpg")
-            if counters[filename] > 0:
-                image_filename = "%s (%d)" % (filename, counters[filename])
-            counters[filename] = counters[filename] + 1
-            while os.path.exists(image_filename + ext) and not overwrite:
-                if os.path.getsize(image_filename + ext) == len(data):
-                    log.debug("Identical file size, not saving %r", image_filename)
-                    break
-                image_filename = "%s (%d)" % (filename, counters[filename])
-                counters[filename] = counters[filename] + 1
-            else:
-                new_filename = image_filename + ext
-                # Even if overwrite is enabled we don't need to write the same
-                # image multiple times
-                if (os.path.exists(new_filename) and
-                    os.path.getsize(new_filename) == len(data)):
-                    log.debug("Identical file size, not saving %r", image_filename)
-                    continue
-                log.debug("Saving cover images to %r", image_filename)
-                new_dirname = os.path.dirname(image_filename)
-                if not os.path.isdir(new_dirname):
-                    os.makedirs(new_dirname)
-                f = open(image_filename + ext, "wb")
-                f.write(data)
-                f.close()
+            image.save(dirname, metadata, counters)
 
     def _move_additional_files(self, old_filename, new_filename):
         """Move extra files, like playlists..."""
@@ -422,17 +390,18 @@ class File(QtCore.QObject, Item):
         return self.similarity == 1.0 and self.state == File.NORMAL
 
     def update(self, signal=True):
-        names = set(self.metadata.keys())
+        new_metadata = self.new_metadata
+        names = set(new_metadata.keys())
         names.update(self.orig_metadata.keys())
         clear_existing_tags = config.setting["clear_existing_tags"]
         for name in names:
             if not name.startswith('~') and self.supports_tag(name):
-                new_values = self.metadata.getall(name)
+                new_values = new_metadata.getall(name)
                 if not (new_values or clear_existing_tags):
                     continue
                 orig_values = self.orig_metadata.getall(name)
                 if orig_values != new_values:
-                    self.similarity = self.orig_metadata.compare(self.metadata)
+                    self.similarity = self.orig_metadata.compare(new_metadata)
                     if self.state in (File.CHANGED, File.NORMAL):
                         self.state = File.CHANGED
                     break
@@ -533,7 +502,11 @@ class File(QtCore.QObject, Item):
 
         # no matches
         if not tracks:
-            self.tagger.window.set_statusbar_message(N_("No matching tracks for file %s"), self.filename, timeout=3000)
+            self.tagger.window.set_statusbar_message(
+                N_("No matching tracks for file '%(filename)s'"),
+                {'filename': self.filename},
+                timeout=3000
+            )
             self.clear_pending()
             return
 
@@ -545,10 +518,18 @@ class File(QtCore.QObject, Item):
         if lookuptype != 'acoustid':
             threshold = config.setting['file_lookup_threshold']
             if match[0] < threshold:
-                self.tagger.window.set_statusbar_message(N_("No matching tracks above the threshold for file %s"), self.filename, timeout=3000)
+                self.tagger.window.set_statusbar_message(
+                    N_("No matching tracks above the threshold for file '%(filename)s'"),
+                    {'filename': self.filename},
+                    timeout=3000
+                )
                 self.clear_pending()
                 return
-        self.tagger.window.set_statusbar_message(N_("File %s identified!"), self.filename, timeout=3000)
+        self.tagger.window.set_statusbar_message(
+            N_("File '%(filename)s' identified!"),
+            {'filename': self.filename},
+            timeout=3000
+        )
         self.clear_pending()
 
         rg, release, track = match[1:]
@@ -564,7 +545,10 @@ class File(QtCore.QObject, Item):
         """Try to identify the file using the existing metadata."""
         if self.lookup_task:
             return
-        self.tagger.window.set_statusbar_message(N_("Looking up the metadata for file %s..."), self.filename)
+        self.tagger.window.set_statusbar_message(
+            N_("Looking up the metadata for file %(filename)s ..."),
+            {'filename': self.filename}
+        )
         self.clear_lookup_task()
         metadata = self.metadata
         self.lookup_task = self.tagger.xmlws.find_tracks(partial(self._lookup_finished, 'metadata'),

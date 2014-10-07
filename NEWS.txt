@@ -1,4 +1,4 @@
-﻿Version 1.3 - xxxx-xx-xx
+Version 1.3 - xxxx-xx-xx
  * The "About" window now displays the versions of libraries used by Picard
  * Picard now correctly handles matching of MP3 files saved in ID3v2.3 tags
    (which is the version that Microsoft Windows and iTunes both use).
@@ -15,23 +15,48 @@
  * Refresh of Albums using Ctrl-R and selection of Other Releases are now more responsive during batch lookups.
  * Main window is now emitting a "selection_updated" signal, plugin api version bumps to 1.3.0
  * Append system information to user-agent string
- * Compilation tag/variable aligned with iTunes, set only for Various Artists type compilations.
+ * Compilation tag/variable functionality (for tagging & file naming) has been split into two:
+   - %compilation% is now aligned with iTunes, and set only for Various Artists type compilations
+   - %_multiartist% variable now indicates whether this release has tracks by multiple artists
+     (in order to prepend the artist name to the filename as shown in the default file naming script)
  * autodetect the CD drive on Mac OS X (PICARD-123)
  * Ignore directories and files while indexing when show_hidden_files option is set to False (PICARD-528)
  * Add ignore_regex option which allows one to ignore matching paths, can be set in Options > Advanced (PICARD-528)
- * Added an "artists" tag to track metadata, based on the one in Jaikoz, which
-   contains the individual artist names from the artist credit.
+ * Added an "artists" multi-value tag to track metadata, based on the one in Jaikoz, which contains the individual
+   artist names from the artist credit. Also useful in scripts (joining phrases like 'feat:' are omitted) and plugins.
+ * Added "_artists_sort", "_albumartists", "_albumartists_sort" variables for scripts and plugins.
  * Made Picard use the country names also used on the MusicBrainz website (PICARD-205)
  * New setup.py command `get_po_files` (Retrieve po files from transifex)
- * New setup.py command `update_countries` (Regenerate countries.py)
  * New setup.py command `regen_pot_file` (Regenerate po/picard.pot)
- * New Work tag (which for Classical music is often different from the track title)
+ * New Work tag (which for Classical music is often different from the track title) saved as ID3 TOAL tag.
  * New Composer Sort Order tag (variable %composersort%).
  * Improve the Other Releases list to prioritise and separate releases which match the correct number of tracks
    and your Options / Metadata / Prefered Releases settings for Country and Format.
  * New %_absolutetracknumber% variable numbering tracks sequentially regardless of disc structure
    (so you can numbers tracks on multi-disc releases without a disc number)
  * Support dropping image directly from Google image results to cover art box
+ * Add %_musicbrainz_tracknumber% to hold track # as shown on MusicBrainz release web-page
+   e.g. vinyl/cassette style A1, A2, B1, B2
+ * Show the ID3 version of the file in the Info... dialog (Ctrl-I) (PICARD-218)
+ * Fixed a bug where Picard crashed if a MP3 file had malformed TRCK or TPOS tags (PICARD-112)
+ * Add --files option to setup.py build_ui, used to force .ui to .py regeneration (PICARD-566)
+ * New setup.py command `update_constants` (Regenerate countries.py and attributes.py)
+ * Made Picard use release groups, medium formats and cover art types also used on the MusicBrainz website
+ * Use MusicBrainz Server translations for release groups, medium formats and cover art types
+ * Add checkbox to toggle debug at runtime in log/debug view dialog
+ * Add a plugin to add Artist Official Homepage relationships to the website tag (ID3 WOAR tag)
+ * Add integrated functions $eq_any, $ne_all, $eq_all, $ne_any, $swapprefix and $delprefix.
+ * Add %_performance_attributes%, containing performance attributes for the work e.g. live, cover, medley etc.
+   Use $inmulti in file naming scripts i.e. ...$if($inmulti(%_performance_attributes%,medley), (Medley),)
+ * Add optional `priority` parameter to `register_album_metadata_processor()` and `register_track_metadata_processor()`
+   Default priority is `PluginPriority.NORMAL`, plugins registered with `PluginPriority.HIGH` will be run first,
+   plugins registered with `PluginPriority.LOW` will run last
+ * Add Standardise Performers plugin to convert e.g. Performer [piano and guitar] into
+   Performer [piano] and Performer [guitar].
+ * Add support for release group cover art fallback (PICARD-418, PICARD-53)
+ * Add a clear button to search box
+ * Honour preferred release formats when matching AcoustIds (PICARD-631)
+ * Prevent ZeroDivisionError in some rare cases (PICARD-630)
 
 Version 1.2 - 2013-03-30
  * Picard now requires at least Python 2.6

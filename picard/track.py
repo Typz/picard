@@ -22,7 +22,7 @@ from functools import partial
 from picard import config, log
 from picard.metadata import Metadata, run_track_metadata_processors
 from picard.dataobj import DataObject
-from picard.util import asciipunct
+from picard.util.textencoding import asciipunct
 from picard.mbxml import recording_to_metadata
 from picard.script import ScriptParser
 from picard.const import VARIOUS_ARTISTS_ID
@@ -194,8 +194,10 @@ class NonAlbumTrack(Track):
             mblogin = True
             inc += ["user-ratings"]
         self.tagger.xmlws.get_track_by_id(self.id,
-            partial(self._recording_request_finished), inc, mblogin=mblogin,
-            priority=priority, refresh=refresh)
+                                          partial(self._recording_request_finished),
+                                          inc, mblogin=mblogin,
+                                          priority=priority,
+                                          refresh=refresh)
 
     def _recording_request_finished(self, document, http, error):
         if error:

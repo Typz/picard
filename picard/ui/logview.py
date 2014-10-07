@@ -19,13 +19,14 @@
 
 
 from PyQt4 import QtCore, QtGui
-from picard import log
+from picard import config, log
+from picard.ui import PicardDialog
 
 
-class LogViewCommon(QtGui.QDialog):
+class LogViewCommon(PicardDialog):
 
     def __init__(self, title, logger, w=740, h=340, parent=None):
-        QtGui.QDialog.__init__(self, parent)
+        PicardDialog.__init__(self, parent)
         self.logger = logger
         self.setWindowFlags(QtCore.Qt.Window)
         self.resize(w, h)
@@ -34,8 +35,8 @@ class LogViewCommon(QtGui.QDialog):
         self.textCursor = QtGui.QTextCursor(self.doc)
         self.browser = QtGui.QTextBrowser(self)
         self.browser.setDocument(self.doc)
-        vbox = QtGui.QHBoxLayout(self)
-        vbox.addWidget(self.browser)
+        self.vbox = QtGui.QVBoxLayout(self)
+        self.vbox.addWidget(self.browser)
         self._display()
 
     def _setup_formats(self):
@@ -84,21 +85,60 @@ class LogViewCommon(QtGui.QDialog):
         self.logger.unregister_receiver(self._add_entry)
         return QtGui.QDialog.closeEvent(self, event)
 
+    def saveWindowState(self, position, size):
+        pos = self.pos()
+        if not pos.isNull():
+            config.persist[position] = pos
+        config.persist[size] = self.size()
+
+    def restoreWindowState(self, position, size):
+        pos = config.persist[position]
+        if pos.x() > 0 and pos.y() > 0:
+            self.move(pos)
+        self.resize(config.persist[size])
+
 
 class LogView(LogViewCommon):
+
+    options = [
+        config.Option("persist", "logview_position", QtCore.QPoint()),
+        config.Option("persist", "logview_size", QtCore.QSize(560, 400)),
+    ]
 
     def __init__(self, parent=None):
         title = _("Log")
         logger = log.main_logger
         LogViewCommon.__init__(self, title, logger, parent=parent)
+        self.restoreWindowState("logview_position", "logview_size")
+        cb = QtGui.QCheckBox(_('Debug mode'), self)
+        cb.setChecked(QtCore.QObject.tagger._debug)
+        cb.stateChanged.connect(self.toggleDebug)
+        self.vbox.addWidget(cb)
+
+    def toggleDebug(self, state):
+        QtCore.QObject.tagger.debug(state == QtCore.Qt.Checked)
+
+    def closeEvent(self, event):
+        self.saveWindowState("logview_position", "logview_size")
+        event.accept()
 
 
 class HistoryView(LogViewCommon):
 
+    options = [
+        config.Option("persist", "historyview_position", QtCore.QPoint()),
+        config.Option("persist", "historyview_size", QtCore.QSize(560, 400)),
+    ]
+
     def __init__(self, parent=None):
-        title = _("Status History")
+        title = _("Activity History")
         logger = log.history_logger
         LogViewCommon.__init__(self, title, logger, parent=parent)
+        self.restoreWindowState("historyview_position", "historyview_size")
 
     def _formatted_log_line(self, level, time, msg):
         return log.formatted_log_line(level, time, msg, level_prefixes=False)
+
+    def closeEvent(self, event):
+        self.saveWindowState("historyview_position", "historyview_size")
+        event.accept()

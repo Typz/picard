@@ -28,6 +28,7 @@ import re
 import time
 import os.path
 import platform
+import math
 from collections import deque, defaultdict
 from functools import partial
 from PyQt4 import QtCore, QtNetwork
@@ -261,7 +262,7 @@ class XmlWebService(QtCore.QObject):
                     original_port = url.port(80)
 
                     if ((original_host, original_port) in REQUEST_DELAY
-                        and (redirect_host, redirect_port) not in REQUEST_DELAY):
+                            and (redirect_host, redirect_port) not in REQUEST_DELAY):
                         log.debug("Setting rate limit for %s:%i to %i" %
                                   (redirect_host, redirect_port,
                                    REQUEST_DELAY[(original_host, original_port)]))
@@ -328,7 +329,7 @@ class XmlWebService(QtCore.QObject):
                 d = request_delay
                 queue.popleft()()
             else:
-                d = request_delay - last_ms
+                d = int(math.ceil(request_delay - last_ms))
                 log.debug("Waiting %d ms before starting another request to %s", d, key)
             if d < delay:
                 delay = d

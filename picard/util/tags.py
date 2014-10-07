@@ -36,7 +36,6 @@ TAG_NAMES = {
     'composersort': N_('Composer Sort Order'),
     'asin': N_('ASIN'),
     'grouping': N_('Grouping'),
-    'version': N_('Version'),
     'isrc': N_('ISRC'),
     'mood': N_('Mood'),
     'bpm': N_('BPM'),
@@ -60,17 +59,17 @@ TAG_NAMES = {
     'musicbrainz_workid': N_('MusicBrainz Work Id'),
     'musicbrainz_releasegroupid': N_('MusicBrainz Release Group Id'),
     'musicbrainz_discid': N_('MusicBrainz Disc Id'),
-    'musicbrainz_sortname': N_('MusicBrainz Sort Name'),
     'musicip_puid': N_('MusicIP PUID'),
     'musicip_fingerprint': N_('MusicIP Fingerprint'),
     'acoustid_id': N_('AcoustID'),
     'acoustid_fingerprint': N_('AcoustID Fingerprint'),
     'discid': N_('Disc Id'),
-    'website': N_('Website'),
+    'website': N_('Artist Website'),
     'compilation': N_('Compilation (iTunes)'),
     'comment:': N_('Comment'),
     'genre': N_('Genre'),
     'encodedby': N_('Encoded By'),
+    'encodersettings': N_('Encoder Settings'),
     'performer:': N_('Performer'),
     'releasetype': N_('Release Type'),
     'releasestatus': N_('Release Status'),
@@ -78,7 +77,6 @@ TAG_NAMES = {
     'label': N_('Record Label'),
     'barcode': N_('Barcode'),
     'catalognumber': N_('Catalog Number'),
-    'format': N_('Format'),
     'djmixer': N_('DJ-Mixer'),
     'media': N_('Media'),
     'lyrics': N_('Lyrics'),
@@ -91,19 +89,18 @@ TAG_NAMES = {
     'work': N_('Work'),
 }
 
+PRESERVED_TAGS = [
+    "~bitrate", "~bits_per_sample", "~format", "~channels", "~sample_rate",
+    "~dirname", "~filename", "~extension",
+]
+
 
 def display_tag_name(name):
+    desc = ''
     if ':' in name:
         name, desc = name.split(':', 1)
-        name = _(TAG_NAMES.get(name + ':', name))
+    name = TAG_NAMES.get(name + ':', TAG_NAMES.get(name, name))
+    if desc:
         return '%s [%s]' % (_(name), desc)
     else:
-        new_name = TAG_NAMES.get(name)
-        if new_name is None:
-            new_name = TAG_NAMES.get(name + ':')
-            if new_name is None:
-                return _(name)
-            else:
-                return '%s []' % (_(new_name),)
-        else:
-            return _(new_name)
+        return _(name)

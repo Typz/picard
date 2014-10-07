@@ -17,19 +17,26 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
+from picard.const import MB_ATTRIBUTES
+from picard.i18n import ugettext_attr
 
 # list of types from http://musicbrainz.org/doc/Cover_Art/Types
 # order of declaration is preserved in selection box
-CAA_TYPES = [
-    {'name': "front",   'title': N_("Front")},
-    {'name': "back",    'title': N_("Back")},
-    {'name': "booklet", 'title': N_("Booklet")},
-    {'name': "medium",  'title': N_("Medium")},
-    {'name': "tray",    'title': N_("Tray")},
-    {'name': "obi",     'title': N_("Obi")},
-    {'name': "spine",   'title': N_("Spine")},
-    {'name': "track",   'title': N_("Track")},
-    {'name': "sticker", 'title': N_("Sticker")},
-    {'name': "other",   'title': N_("Other")},
-    {'name': "unknown", 'title': N_("Unknown")},  # pseudo type, used for the no type case
-]
+CAA_TYPES = []
+for k, v in sorted(MB_ATTRIBUTES.items(), key=lambda (k, v): k):
+    if k.startswith(u'DB:cover_art_archive.art_type/name:'):
+        CAA_TYPES.append({'name': v.lower(), 'title': v})
+
+# pseudo type, used for the no type case
+CAA_TYPES.append({'name': "unknown", 'title': N_(u"Unknown")})
+
+CAA_TYPES_TR = {}
+for t in CAA_TYPES:
+    CAA_TYPES_TR[t['name']] = t['title']
+
+
+def translate_caa_type(name):
+    if name == 'unknown':
+        return _(CAA_TYPES_TR[name])
+    else:
+        return ugettext_attr(CAA_TYPES_TR[name], u"cover_art_type")

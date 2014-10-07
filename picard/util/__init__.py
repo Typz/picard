@@ -19,6 +19,7 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
 import os
+import ntpath
 import re
 import sys
 import unicodedata
@@ -26,32 +27,9 @@ from time import time
 from PyQt4 import QtCore
 from encodings import rot_13
 from string import Template
+# Required for compatibility with lastfmplus which imports this from here rather than loading it direct.
 from functools import partial
-
-
-def asciipunct(s):
-    mapping = {
-        u"…": u"...",
-        u"‘": u"'",
-        u"’": u"'",
-        u"‚": u"'",
-        u"“": u"\"",
-        u"”": u"\"",
-        u"„": u"\"",
-        u"′": u"'",
-        u"″": u"\"",
-        u"‹": u"<",
-        u"›": u">",
-        u"‐": u"-",
-        u"‒": u"-",
-        u"–": u"-",
-        u"−": u"-",
-        u"—": u"-",
-        u"―": u"--",
-    }
-    for orig, repl in mapping.iteritems():
-        s = s.replace(orig, repl)
-    return s
+from collections import defaultdict
 
 
 class LockableObject(QtCore.QObject):
@@ -149,37 +127,13 @@ def sanitize_date(datestr):
     return ("", "%04d", "%04d-%02d", "%04d-%02d-%02d")[len(date)] % tuple(date)
 
 
-_unaccent_dict = {u'Æ': u'AE', u'æ': u'ae', u'Œ': u'OE', u'œ': u'oe', u'ß': 'ss'}
-_re_latin_letter = re.compile(r"^(LATIN [A-Z]+ LETTER [A-Z]+) WITH")
-def unaccent(string):
-    """Remove accents ``string``."""
-    result = []
-    for char in string:
-        if char in _unaccent_dict:
-            char = _unaccent_dict[char]
-        else:
-            try:
-                name = unicodedata.name(char)
-                match = _re_latin_letter.search(name)
-                if match:
-                    char = unicodedata.lookup(match.group(1))
-            except:
-                pass
-        result.append(char)
-    return "".join(result)
-
-
-_re_non_ascii = re.compile(r'[^\x00-\x7F]', re.UNICODE)
-def replace_non_ascii(string, repl="_"):
-    """Replace non-ASCII characters from ``string`` by ``repl``."""
-    return _re_non_ascii.sub(repl, asciipunct(string))
-
-
 _re_win32_incompat = re.compile(r'["*:<>?|]', re.UNICODE)
 def replace_win32_incompat(string, repl=u"_"):
     """Replace win32 filename incompatible characters from ``string`` by
        ``repl``."""
-    return _re_win32_incompat.sub(repl, string)
+    # Don't replace : with _ for windows drive
+    drive, rest = ntpath.splitdrive(string)
+    return drive + _re_win32_incompat.sub(repl, rest)
 
 
 _re_non_alphanum = re.compile(r'\W+', re.UNICODE)
@@ -252,22 +206,6 @@ def mbid_validate(string):
 
 def rot13(input):
     return u''.join(unichr(rot_13.encoding_map.get(ord(c), ord(c))) for c in input)
-
-
-def load_release_type_scores(setting):
-    scores = {}
-    values = setting.split()
-    for i in range(0, len(values), 2):
-        try:
-            score = float(values[i + 1])
-        except IndexError:
-            score = 0.0
-        scores[values[i]] = score
-    return scores
-
-
-def save_release_type_scores(scores):
-    return " ".join(["%s %.2f" % v for v in scores.iteritems()])
 
 
 def parse_amazon_url(url):
@@ -354,14 +292,15 @@ def tracknum_from_filename(base_filename):
             n = int(match.group(1))
             if n > 0:
                 return n
-    # find all numbers between 1 and 99
-    # 4-digit or more numbers are very unlikely to be a track number
-    # smaller number is prefered in any case
+    # find all numbers between 1 and 99
+    # 4-digit or more numbers are very unlikely to be a track number
+    # smaller number is preferred in any case
     numbers = sorted([int(n) for n in re.findall(r'\d+', filename) if
                       int(n) <= 99 and int(n) > 0])
     if numbers:
         return numbers[0]
     return -1
+
 
 # Provide os.path.samefile equivalent which is missing in Python under Windows
 if sys.platform == 'win32':
@@ -377,3 +316,49 @@ def is_hidden_path(path):
     """Returns true if at least one element of the path starts with a dot"""
     path = os.path.normpath(path)  # we need to ignore /./ and /a/../ cases
     return any(s.startswith('.') for s in path.split(os.sep))
+
+
+def linear_combination_of_weights(parts):
+    """Produces a probability as a linear combination of weights
+    Parts should be a list of tuples in the form:
+        [(v0, w0), (v1, w1), ..., (vn, wn)]
+    where vn is a value between 0.0 and 1.0
+    and wn corresponding weight as a positive number
+    """
+    total = 0.0
+    sum_of_products = 0.0
+    for value, weight in parts:
+        if value < 0.0:
+            raise ValueError, "Value must be greater than or equal to 0.0"
+        if value > 1.0:
+            raise ValueError, "Value must be lesser than or equal to 1.0"
+        if weight < 0:
+            raise ValueError, "Weight must be greater than or equal to 0.0"
+        total += weight
+        sum_of_products += value * weight
+    if total == 0.0:
+        return 0.0
+    return sum_of_products / total
+
+
+def album_artist_from_path(filename, album, artist):
+    """If album is not set, try to extract album and artist from path
+    """
+    if not album:
+        dirs = os.path.dirname(filename).replace('\\','/').lstrip('/').split('/')
+        if len(dirs) == 0:
+            return album, artist
+        # Strip disc subdirectory from list
+        if len(dirs) > 0:
+            if re.search(r'(^|\s)(CD|DVD|Disc)\s*\d+(\s|$)', dirs[-1], re.I):
+                del dirs[-1]
+        if len(dirs) > 0:
+            # For clustering assume %artist%/%album%/file or %artist% - %album%/file
+            album = dirs[-1]
+            if ' - ' in album:
+                new_artist, album = album.split(' - ', 1)
+                if not artist:
+                    artist = new_artist
+            elif not artist and len(dirs) >= 2:
+                artist = dirs[-2]
+    return album, artist

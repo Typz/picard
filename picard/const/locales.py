@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # Picard, the next-generation MusicBrainz tagger
+#
 # Copyright (C) 2007 Lukáš Lalinský
 #
 # This program is free software; you can redistribute it and/or
@@ -17,147 +18,8 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
-import os
-import sys
 
-# Install gettext "noop" function in case const.py gets imported directly.
-import __builtin__
-__builtin__.__dict__['N_'] = lambda a: a
-
-# Config directory
-if sys.platform == "win32":
-    USER_DIR = os.environ.get("APPDATA", "~\\Application Data")
-else:
-    USER_DIR = os.environ.get("XDG_CONFIG_HOME", "~/.config")
-
-USER_DIR = os.path.join(
-    os.path.expanduser(USER_DIR), "MusicBrainz", "Picard"
-)
-
-USER_PLUGIN_DIR = os.path.join(USER_DIR, "plugins")
-
-# AcoustID client API key
-ACOUSTID_KEY = 'tPrbdkhM'
-ACOUSTID_HOST = 'api.acoustid.org'
-ACOUSTID_PORT = 80
-FPCALC_NAMES = ['fpcalc', 'pyfpcalc']
-
-# Cover art archive URL and port
-CAA_HOST = "coverartarchive.org"
-CAA_PORT = 80
-
-# URLs
-PICARD_URLS = {
-    'documentation':    "http://musicbrainz.org/doc/MusicBrainz_Picard/Documentation",
-    'troubleshooting':  "http://musicbrainz.org/doc/MusicBrainz_Picard/Troubleshooting",
-    'home':             "http://musicbrainz.org/doc/MusicBrainz_Picard",
-    'doc_options':      "http://musicbrainz.org/doc/MusicBrainz_Picard/Documentation/Options",
-    'plugins':          "http://musicbrainz.org/doc/MusicBrainz_Picard/Plugins",
-    'forum':            "http://forums.musicbrainz.org/viewforum.php?id=2",
-    'donate':           "http://metabrainz.org/donate",
-    'chromaprint':      "http://acoustid.org/chromaprint#download",
-    'acoustid_apikey':  "http://acoustid.org/api-key",
-}
-
-# Various Artists MBID
-VARIOUS_ARTISTS_ID = '89ad4ac3-39f7-470e-963a-56509c546377'
-
-# Release formats
-RELEASE_FORMATS = {
-    u'CD': N_('CD'),
-    u'CD-R': N_('CD-R'),
-    u'HDCD': N_('HDCD'),
-    u'8cm CD': N_('8cm CD'),
-    u'Vinyl': N_('Vinyl'),
-    u'7" Vinyl': N_('7" Vinyl'),
-    u'10" Vinyl': N_('10" Vinyl'),
-    u'12" Vinyl': N_('12" Vinyl'),
-    u'Digital Media': N_('Digital Media'),
-    u'USB Flash Drive': N_('USB Flash Drive'),
-    u'slotMusic': N_('slotMusic'),
-    u'Cassette': N_('Cassette'),
-    u'DVD': N_('DVD'),
-    u'DVD-Audio': N_('DVD-Audio'),
-    u'DVD-Video': N_('DVD-Video'),
-    u'SACD': N_('SACD'),
-    u'DualDisc': N_('DualDisc'),
-    u'MiniDisc': N_('MiniDisc'),
-    u'Blu-ray': N_('Blu-ray'),
-    u'HD-DVD': N_('HD-DVD'),
-    u'Videotape': N_('Videotape'),
-    u'VHS': N_('VHS'),
-    u'Betamax': N_('Betamax'),
-    u'VCD': N_('VCD'),
-    u'SVCD': N_('SVCD'),
-    u'UMD': N_('UMD'),
-    u'Other': N_('Other'),
-    u'LaserDisc': N_('LaserDisc'),
-    u'Cartridge': N_('Cartridge'),
-    u'Reel-to-reel': N_('Reel-to-reel'),
-    u'DAT': N_('DAT'),
-    u'Wax Cylinder': N_('Wax Cylinder'),
-    u'Piano Roll': N_('Piano Roll'),
-    u'DCC': N_('DCC')
-}
-
-# Release countries
-from picard.countries import RELEASE_COUNTRIES
-
-# List of available user interface languages
-UI_LANGUAGES = [
-    #(u'af', u'Afrikaans', N_(u'Afrikaans')),
-    #(u'ar', u'العربية', N_(u'Arabic')),
-    #(u'ast', u'Asturianu', N_(u'Asturian')),
-    #(u'bg', u'Български', N_(u'Bulgarian')),
-    #(u'ca', u'Català', N_(u'Catalan')),
-    #(u'cs', u'Čeština', N_(u'Czech')),
-    #(u'cy', u'Cymraeg', N_(u'Welsh')),
-    (u'da', u'Dansk', N_(u'Danish')),
-    (u'de', u'Deutsch', N_(u'German')),
-    #(u'el', u'ελληνικά', N_(u'Greek')),
-    (u'en', u'English', N_(u'English')),
-    (u'en_CA', u'English (Canada)', N_(u'English (Canada)')),
-    (u'en_GB', u'English (UK)', N_(u'English (UK)')),
-    #(u'eo', u'Esperanto', N_(u'Esperanto')),
-    (u'es', u'Español', N_(u'Spanish')),
-    (u'et', u'Eesti keel', N_(u'Estonian')),
-    #(u'fa', u'فارسی', N_(u'Persian')),
-    (u'fi', u'Suomi', N_(u'Finnish')),
-    #(u'fo', u'Føroyskt', N_(u'Faroese')),
-    (u'fr', u'Français', N_(u'French')),
-    #(u'fr_CA', u'Français canadien', N_(u'French (Canada)')),
-    #(u'fy', u'Frysk', N_(u'Frisian')),
-    #(u'gl', u'Galego', N_(u'Galician')),
-    #(u'he', u'עברית', N_(u'Hebrew')),
-    #(u'hi', u'हिन्दी', N_(u'Hindi')),
-    #(u'hu', u'Magyar', N_(u'Hungarian')),
-    #(u'id', u'Bahasa Indonesia', N_(u'Indonesian')),
-    #(u'is', u'Íslenska', N_(u'Islandic')),
-    (u'it', u'Italiano', N_(u'Italian')),
-    #(u'ja', u'日本語', N_(u'Japanese')),
-    #(u'kn', u'ಕನ್ನಡ', N_(u'Kannada')),
-    #(u'ko', u'한국어', N_(u'Korean')),
-    #(u'lt', u'Lietuvių', N_(u'Lithuanian')),
-    #(u'nb', u'Norsk bokmål', N_(u'Norwegian Bokmal')),
-    #(u'nds', u'Plattdüütsch', N_(u'Low German')),
-    (u'nl', u'Nederlands', N_(u'Dutch')),
-    #(u'oc', u'Occitan', N_(u'Occitan')),
-    (u'pl', u'Polski', N_(u'Polish')),
-    #(u'pt', u'Português', N_(u'Portuguese')),
-    (u'pt_BR', u'Português do Brasil', N_(u'Brazilian Portuguese')),
-    #(u'ro', u'Română', N_(u'Romanian')),
-    #(u'ru', u'Pyccĸий', N_(u'Russian')),
-    #(u'sco', u'Scots leid', N_(u'Scots')),
-    #(u'sk', u'Slovenčina', N_(u'Slovak')),
-    #(u'sl', u'Slovenščina', N_(u'Slovenian')),
-    #(u'sr', u'Србин', N_(u'Serbian')),
-    (u'sv', u'Svenska', N_(u'Swedish')),
-    #(u'ta', u'தமிழ்', N_(u'Tamil')),
-    #(u'tr', u'Türkçe', N_(u'Turkish')),
-    #(u'uk', u'Украї́нська мо́ва', N_(u'Ukrainian')),
-    #(u'zh_CN', u'中文', N_(u'Chinese')),
-]
-
+# List of alias locales
 ALIAS_LOCALES = {
     u'aa': 'Afar',
     u'aa_DJ': 'Afar (Djibouti)',
@@ -625,9 +487,3 @@ ALIAS_LOCALES = {
     u'zu': 'Zulu',
     u'zu_ZA': 'Zulu (South Africa)',
 }
-
-# List of official musicbrainz servers - must support SSL for mblogin requests (such as collections).
-MUSICBRAINZ_SERVERS = [
-    'musicbrainz.org',
-    'beta.musicbrainz.org',
-]

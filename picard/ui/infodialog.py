@@ -19,15 +19,20 @@
 
 import os.path
 import cgi
+import traceback
 from PyQt4 import QtGui, QtCore
-from picard.util import format_time, encode_filename, bytes2human
+from picard import log
+from picard.coverart.utils import translate_caa_type
+from picard.coverart.image import CoverArtImageIOError
+from picard.util import format_time, encode_filename, bytes2human, webbrowser2
+from picard.ui import PicardDialog
 from picard.ui.ui_infodialog import Ui_InfoDialog
 
 
-class InfoDialog(QtGui.QDialog):
+class InfoDialog(PicardDialog):
 
     def __init__(self, obj, parent=None):
-        QtGui.QDialog.__init__(self, parent)
+        PicardDialog.__init__(self, parent)
         self.obj = obj
         self.ui = Ui_InfoDialog()
         self.ui.setupUi(self)
@@ -47,19 +52,43 @@ class InfoDialog(QtGui.QDialog):
             self.tab_hide(tab)
             return
 
+        self.ui.artwork_list.itemDoubleClicked.connect(self.show_item)
         for image in images:
-            data = image["data"]
-            size = len(data)
+            data = None
+            try:
+                if image.thumbnail:
+                    try:
+                        data = image.thumbnail.data
+                    except CoverArtImageIOError as e:
+                        log.warning(unicode(e))
+                        pass
+                else:
+                    data = image.data
+            except CoverArtImageIOError:
+                log.error(traceback.format_exc())
+                continue
             item = QtGui.QListWidgetItem()
-            pixmap = QtGui.QPixmap()
-            pixmap.loadFromData(data)
-            icon = QtGui.QIcon(pixmap)
-            item.setIcon(icon)
-            s = "%s (%s)\n%d x %d" % (bytes2human.decimal(size),
-                                      bytes2human.binary(size),
-                                      pixmap.width(),
-                                      pixmap.height())
-            item.setText(s)
+            item.setData(QtCore.Qt.UserRole, image)
+            if data is not None:
+                pixmap = QtGui.QPixmap()
+                pixmap.loadFromData(data)
+                icon = QtGui.QIcon(pixmap)
+                item.setIcon(icon)
+                item.setToolTip(
+                    _("Double-click to open in external viewer\n"
+                      "Temporary file: %s\n"
+                      "Source: %s") % (image.tempfile_filename, image.source))
+            infos = []
+            infos.append(image.types_as_string())
+            if image.comment:
+                infos.append(image.comment)
+            infos.append(u"%s (%s)" %
+                         (bytes2human.decimal(image.datalength),
+                          bytes2human.binary(image.datalength)))
+            if image.width and image.height:
+                infos.append(u"%d x %d" % (image.width, image.height))
+            infos.append(image.mimetype)
+            item.setText(u"\n".join(infos))
             self.ui.artwork_list.addItem(item)
 
     def tab_hide(self, widget):
@@ -67,6 +96,11 @@ class InfoDialog(QtGui.QDialog):
         index = tab.indexOf(widget)
         tab.removeTab(index)
 
+    def show_item(self, item):
+        coverartimage = item.data(QtCore.Qt.UserRole)
+        filename = coverartimage.tempfile_filename
+        if filename:
+            webbrowser2.open("file://" + filename)
 
 class FileInfoDialog(InfoDialog):
 
@@ -123,7 +157,7 @@ class AlbumInfoDialog(InfoDialog):
         if album.errors:
             tabWidget.setTabText(tab_index, _("&Errors"))
             text = '<br />'.join(map(lambda s: '<font color="darkred">%s</font>' %
-                                     '<br />'.join(unicode(cgi.escape(s))
+                                     '<br />'.join(unicode(QtCore.Qt.escape(s))
                                                    .replace('\t', ' ')
                                                    .replace(' ', '&nbsp;')
                                                    .splitlines()

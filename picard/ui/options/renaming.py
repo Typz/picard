@@ -24,12 +24,19 @@ from functools import partial
 from PyQt4 import QtGui
 from picard import config
 from picard.file import File
-from picard.script import ScriptParser, SyntaxError, UnknownFunction
+from picard.script import ScriptParser, SyntaxError, ScriptError, UnknownFunction
 from picard.ui.options import OptionsPage, OptionsCheckError, register_options_page
 from picard.ui.ui_options_renaming import Ui_RenamingOptionsPage
 from picard.ui.util import enabledSlot
 from picard.ui.options.scripting import TaggerScriptSyntaxHighlighter
 
+
+_DEFAULT_FILE_NAMING_FORMAT = "$if2(%albumartist%,%artist%)/" \
+    "$if($ne(%albumartist%,),%album%/)" \
+    "$if($gt(%totaldiscs%,1),%discnumber%-,)" \
+    "$if($ne(%albumartist%,),$num(%tracknumber%,2) ,)" \
+    "$if(%_multiartist%,%artist% - ,)" \
+    "%title%"
 
 class RenamingOptionsPage(OptionsPage):
 
@@ -43,7 +50,11 @@ class RenamingOptionsPage(OptionsPage):
         config.BoolOption("setting", "windows_compatibility", True),
         config.BoolOption("setting", "ascii_filenames", False),
         config.BoolOption("setting", "rename_files", False),
-        config.TextOption("setting", "file_naming_format", "$if2(%albumartist%,%artist%)/%album%/$if($gt(%totaldiscs%,1),%discnumber%-,)$num(%tracknumber%,2)$if(%compilation%, %artist% -,) %title%"),
+        config.TextOption(
+            "setting",
+            "file_naming_format",
+            _DEFAULT_FILE_NAMING_FORMAT,
+        ),
         config.BoolOption("setting", "move_files", False),
         config.TextOption("setting", "move_files_to", ""),
         config.BoolOption("setting", "move_additional_files", False),
@@ -147,6 +158,8 @@ class RenamingOptionsPage(OptionsPage):
                 return os.path.basename(filename)
             return filename
         except SyntaxError:
+            return ""
+        except ScriptError:
             return ""
         except TypeError:
             return ""

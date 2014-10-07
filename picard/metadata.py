@@ -15,33 +15,18 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301,
+# USA.
 from PyQt4.QtCore import QObject
-from picard import config
-from picard.plugin import ExtensionPoint
+from picard import config, log
+from picard.plugin import PluginFunctions, PluginPriority
 from picard.similarity import similarity2
-from picard.util import load_release_type_scores
+from picard.util import (
+    linear_combination_of_weights,
+)
 from picard.mbxml import artist_credit_from_node
 
 MULTI_VALUED_JOINER = '; '
-
-
-def is_front_image(image):
-    # CAA has a flag for "front" image, use it in priority
-    caa_front = image.get('front', None)
-    if caa_front is None:
-        # no caa front flag, use type instead
-        return (image['type'] == 'front')
-    return caa_front
-
-
-def save_this_image_to_tags(image):
-    if not config.setting["save_only_front_images_to_tags"]:
-        return True
-    if is_front_image(image):
-        return True
-    return False
 
 
 class Metadata(dict):
@@ -56,43 +41,38 @@ class Metadata(dict):
         ('totaltracks', 5),
     ]
 
+    multi_valued_joiner = MULTI_VALUED_JOINER
+
     def __init__(self):
         super(Metadata, self).__init__()
         self.images = []
         self.length = 0
 
-    def add_image(self, mime, data, filename=None, extras=None):
-        """Adds the image ``data`` to this Metadata object.
+    def append_image(self, coverartimage):
+        self.images.append(coverartimage)
 
-        Arguments:
-        mime -- The mimetype of the image
-        data -- The image data
-        filename -- The image filename, without an extension
-        extras -- extra informations about image as dict
-            'desc' : image description or comment, default to ''
-            'type' : main type as a string, default to 'front'
-            'front': if set, CAA front flag is true for this image
-        """
-        imagedict = {'mime': mime,
-                     'data': data,
-                     'filename': filename,
-                     'type': 'front',
-                     'desc': ''}
-        if extras is not None:
-            imagedict.update(extras)
-        self.images.append(imagedict)
+    @property
+    def images_to_be_saved_to_tags(self):
+        if not config.setting["save_images_to_tags"]:
+            return ()
+        images = [img for img in self.images if img.can_be_saved_to_tags]
+        if config.setting["save_only_front_images_to_tags"]:
+            # FIXME : rename option at some point
+            # Embed only ONE front image
+            for img in images:
+                if img.is_front_image():
+                    return [img]
+        return images
 
     def remove_image(self, index):
         self.images.pop(index)
 
     def compare(self, other):
         parts = []
-        total = 0
 
         if self.length and other.length:
             score = 1.0 - min(abs(self.length - other.length), 30000) / 30000.0
             parts.append((score, 8))
-            total += 8
 
         for name, weight in self.__weights:
             a = self[name]
@@ -109,27 +89,28 @@ class Metadata(dict):
                 else:
                     score = similarity2(a, b)
                 parts.append((score, weight))
-                total += weight
-        return reduce(lambda x, y: x + y[0] * y[1] / total, parts, 0.0)
 
-    def compare_to_release(self, release, weights, return_parts=False):
+        return linear_combination_of_weights(parts)
+
+    def compare_to_release(self, release, weights):
         """
         Compare metadata to a MusicBrainz release. Produces a probability as a
         linear combination of weights that the metadata matches a certain album.
         """
-        total = 0.0
+        parts = self.compare_to_release_parts(release, weights)
+        return (linear_combination_of_weights(parts), release)
+
+    def compare_to_release_parts(self, release, weights):
         parts = []
 
         if "album" in self:
             b = release.title[0].text
             parts.append((similarity2(self["album"], b), weights["album"]))
-            total += weights["album"]
 
         if "albumartist" in self and "albumartist" in weights:
             a = self["albumartist"]
             b = artist_credit_from_node(release.artist_credit[0])[0]
             parts.append((similarity2(a, b), weights["albumartist"]))
-            total += weights["albumartist"]
 
         if "totaltracks" in self:
             a = int(self["totaltracks"])
@@ -139,7 +120,6 @@ class Metadata(dict):
                 b = int(release.medium_list[0].track_count[0].text)
             score = 0.0 if a > b else 0.3 if a < b else 1.0
             parts.append((score, weights["totaltracks"]))
-            total += weights["totaltracks"]
 
         preferred_countries = config.setting["preferred_release_countries"]
         preferred_formats = config.setting["preferred_release_formats"]
@@ -172,57 +152,51 @@ class Metadata(dict):
             parts.append((score, weights["format"]))
 
         if "releasetype" in weights:
-            type_scores = load_release_type_scores(config.setting["release_type_scores"])
+            type_scores = dict(config.setting["release_type_scores"])
             if 'release_group' in release.children and 'type' in release.release_group[0].attribs:
                 release_type = release.release_group[0].type
                 score = type_scores.get(release_type, type_scores.get('Other', 0.5))
             else:
                 score = 0.0
             parts.append((score, weights["releasetype"]))
-            total += weights["releasetype"]
 
         rg = QObject.tagger.get_release_group_by_id(release.release_group[0].id)
         if release.id in rg.loaded_albums:
             parts.append((1.0, 6))
 
-        return (total, parts) if return_parts else \
-               (reduce(lambda x, y: x + y[0] * y[1] / total, parts, 0.0), release)
+        return parts
 
     def compare_to_track(self, track, weights):
-        total = 0.0
         parts = []
 
         if 'title' in self:
             a = self['title']
             b = track.title[0].text
             parts.append((similarity2(a, b), weights["title"]))
-            total += weights["title"]
 
         if 'artist' in self:
             a = self['artist']
             b = artist_credit_from_node(track.artist_credit[0])[0]
             parts.append((similarity2(a, b), weights["artist"]))
-            total += weights["artist"]
 
         a = self.length
         if a > 0 and 'length' in track.children:
             b = int(track.length[0].text)
             score = 1.0 - min(abs(a - b), 30000) / 30000.0
             parts.append((score, weights["length"]))
-            total += weights["length"]
 
         releases = []
         if "release_list" in track.children and "release" in track.release_list[0].children:
             releases = track.release_list[0].release
 
         if not releases:
-            sim = reduce(lambda x, y: x + y[0] * y[1] / total, parts, 0.0)
+            sim = linear_combination_of_weights(parts)
             return (sim, None, None, track)
 
         result = (-1,)
         for release in releases:
-            t, p = self.compare_to_release(release, weights, return_parts=True)
-            sim = reduce(lambda x, y: x + y[0] * y[1] / (total + t), parts + p, 0.0)
+            release_parts = self.compare_to_release_parts(release, weights)
+            sim = linear_combination_of_weights(parts + release_parts)
             if sim > result[0]:
                 rg = release.release_group[0] if "release_group" in release.children else None
                 result = (sim, rg, release, track)
@@ -252,7 +226,7 @@ class Metadata(dict):
     def get(self, name, default=None):
         values = dict.get(self, name, None)
         if values:
-            return MULTI_VALUED_JOINER.join(values)
+            return self.multi_valued_joiner.join(values)
         else:
             return default
 
@@ -319,25 +293,23 @@ class Metadata(dict):
         self.apply_func(lambda s: s.strip())
 
 
-_album_metadata_processors = ExtensionPoint()
-_track_metadata_processors = ExtensionPoint()
+_album_metadata_processors = PluginFunctions()
+_track_metadata_processors = PluginFunctions()
 
 
-def register_album_metadata_processor(function):
+def register_album_metadata_processor(function, priority=PluginPriority.NORMAL):
     """Registers new album-level metadata processor."""
-    _album_metadata_processors.register(function.__module__, function)
+    _album_metadata_processors.register(function.__module__, function, priority)
 
 
-def register_track_metadata_processor(function):
+def register_track_metadata_processor(function, priority=PluginPriority.NORMAL):
     """Registers new track-level metadata processor."""
-    _track_metadata_processors.register(function.__module__, function)
+    _track_metadata_processors.register(function.__module__, function, priority)
 
 
 def run_album_metadata_processors(tagger, metadata, release):
-    for processor in _album_metadata_processors:
-        processor(tagger, metadata, release)
+    _album_metadata_processors.run(tagger, metadata, release)
 
 
 def run_track_metadata_processors(tagger, metadata, release, track):
-    for processor in _track_metadata_processors:
-        processor(tagger, metadata, track, release)
+    _track_metadata_processors.run(tagger, metadata, track, release)

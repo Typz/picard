@@ -21,10 +21,11 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
 import re
+from collections import namedtuple
+from inspect import getargspec
 from picard.metadata import Metadata
 from picard.metadata import MULTI_VALUED_JOINER
 from picard.plugin import ExtensionPoint
-from inspect import getargspec
 
 
 class ScriptError(Exception):
@@ -68,20 +69,28 @@ class ScriptVariable(object):
         return state.context.get(name, u"")
 
 
+FunctionRegistryItem = namedtuple("FunctionRegistryItem",
+                                  ["function", "eval_args",
+                                   "argcount"])
+Bound = namedtuple("Bound", ["lower", "upper"])
+
+
 class ScriptFunction(object):
 
     def __init__(self, name, args, parser):
         try:
-            expected_args = parser.functions[name][2]
-            if expected_args and (len(args) not in expected_args):
+            argnum_bound = parser.functions[name].argcount
+            argcount = len(args)
+            if argnum_bound and not (argnum_bound.lower <= argcount
+                                     and (argnum_bound.upper is None
+                                          or len(args) <= argnum_bound.upper)):
                 raise ScriptError(
-                "Wrong number of arguments for $%s: Expected %s, got %i at position %i, line %i"
+                    "Wrong number of arguments for $%s: Expected %s, got %i at position %i, line %i"
                     % (name,
-                       str(expected_args[0])
-                            if len(expected_args) == 1
-                            else
-                                "%i - %i" % (min(expected_args), max(expected_args)),
-                       len(args),
+                       str(argnum_bound.lower)
+                        if argnum_bound.upper is None
+                        else "%i - %i" % (argnum_bound.lower, argnum_bound.upper),
+                       argcount,
                        parser._x,
                        parser._y))
         except KeyError:
@@ -169,6 +178,10 @@ Grammar:
             result, ch = self.parse_expression(False)
             results.append(result)
             if ch == ')':
+                # Only an empty expression as first argument
+                # is the same as no argument given.
+                if len(results) == 1 and results[0] == []:
+                    return []
                 return results
 
     def parse_function(self):
@@ -243,8 +256,8 @@ Grammar:
 
     def load_functions(self):
         self.functions = {}
-        for name, function, eval_args, num_args in ScriptParser._function_registry:
-            self.functions[name] = (function, eval_args, num_args)
+        for name, item in ScriptParser._function_registry:
+            self.functions[name] = item
 
     def parse(self, script, functions=False):
         """Parse the script."""
@@ -277,18 +290,21 @@ def register_script_function(function, name=None, eval_args=True,
     If ``check_argcount`` is ``False`` the number of arguments passed to the
     function will not be verified."""
 
-    argspec = getargspec(function)
-    argcount = (len(argspec[0]) - 1,)  # -1 for the parser
+    args, varargs, keywords, defaults = getargspec(function)
+    args = len(args) - 1  # -1 for the parser
+    varargs = varargs is not None
+    defaults = len(defaults) if defaults else 0
 
-    if argspec[3] is not None:
-        argcount = range(argcount[0] - len(argspec[3]), argcount[0] + 1)
+    argcount = Bound(args - defaults, args if not varargs else None)
 
     if name is None:
         name = function.__name__
     ScriptParser._function_registry.register(function.__module__,
-        (name, function, eval_args,
-            argcount if argcount and check_argcount else False)
-        )
+        (name, FunctionRegistryItem(
+                    function, eval_args,
+                    argcount if argcount and check_argcount else False)
+         )
+    )
 
 
 def func_if(parser, _if, _then, _else=None):
@@ -567,7 +583,7 @@ def func_gte(parser, x, y):
     return ""
 
 
-def func_len(parser, text):
+def func_len(parser, text=""):
     return str(len(text))
 
 
@@ -586,7 +602,7 @@ def func_matchedtracks(parser, arg):
     return "0"
 
 
-def func_firstalphachar(parser, text, nonalpha="#"):
+def func_firstalphachar(parser, text="", nonalpha="#"):
     if len(text) == 0:
         return nonalpha
     firstchar = text[0]
@@ -596,7 +612,7 @@ def func_firstalphachar(parser, text, nonalpha="#"):
         return nonalpha
 
 
-def func_initials(parser, text):
+def func_initials(parser, text=""):
     return "".join(a[:1] for a in text.split(" ") if a[:1].isalpha())
 
 
@@ -621,9 +637,91 @@ def func_truncate(parser, text, length):
     return text[:length].rstrip()
 
 
+def func_swapprefix(parser, text, *prefixes):
+    """
+    Moves the specified prefixes to the end of text.
+    If no prefix is specified 'A' and 'The' are taken as default.
+    """
+    # Inspired by the swapprefix plugin by Philipp Wolfer.
+
+    text, prefix = _delete_prefix(parser, text, *prefixes)
+    if prefix != '':
+        return text + ', ' + prefix
+    return text
+
+
+def func_delprefix(parser, text, *prefixes):
+    """
+    Deletes the specified prefixes.
+    If no prefix is specified 'A' and 'The' are taken as default.
+    """
+    # Inspired by the swapprefix plugin by Philipp Wolfer.
+
+    return _delete_prefix(parser, text, *prefixes)[0]
+
+
+def _delete_prefix(parser, text, *prefixes):
+    """
+    Worker function to deletes the specified prefixes.
+    Returns remaining string and deleted part separately.
+    If no prefix is specified 'A' and 'The' used.
+    """
+    # Inspired by the swapprefix plugin by Philipp Wolfer.
+
+    if not prefixes:
+        prefixes = ('A', 'The')
+    text = text.strip()
+    match = re.match('(' + r'\s+)|('.join(prefixes) + r'\s+)', text)
+    if match:
+        pref = match.group()
+        return text[len(pref):], pref.strip()
+    return text, ''
+
+
+def func_eq_any(parser, x, *args):
+    """
+    Return True if one string matches any of one or more other strings.
+    $eq_any(a,b,c ...) is functionally equivalent to $or($eq(a,b),$eq(a,c) ...)
+    Example: $if($eq_any(%artist%,foo,bar,baz),$set(engineer,test))
+    """
+    # Inspired by the eq2 plugin by Brian Schweitzer.
+    return '1' if x in args else ''
+
+
+def func_ne_all(parser, x, *args):
+    """
+    Return True if one string doesn't match all of one or more other strings.
+    $ne_all(a,b,c ...) is functionally equivalent to $and($ne(a,b),$ne(a,c) ...)
+    Example: $if($ne_all(%artist%,foo,bar,baz),$set(engineer,test))
+    """
+    # Inspired by the ne2 plugin by Brian Schweitzer.
+    return '1' if x not in args else ''
+
+
+def func_eq_all(parser, x, *args):
+    """
+    Return True if all string are equal.
+    $eq_all(a,b,c ...) is functionally equivalent to $and($eq(a,b),$eq(a,c) ...)
+    Example: $if($eq_all(%albumartist%,%artist%,Justin Bieber),$set(engineer,Meat Loaf))
+    """
+    for i in args:
+        if x != i:
+            return ''
+    return '1'
+
+
+def func_ne_any(parser, x, *args):
+    """
+    Return True if all strings are not equal.
+    $ne_any(a,b,c ...) is functionally equivalent to $or($ne(a,b),$ne(a,c) ...)
+    Example: $if($ne_any(%albumartist%,%trackartist%,%composer%),$set(lyricist,%composer%))
+    """
+    return func_not(parser, func_eq_all(parser, x, *args))
+
+
 register_script_function(func_if, "if", eval_args=False)
-register_script_function(func_if2, "if2", eval_args=False, check_argcount=False)
-register_script_function(func_noop, "noop", eval_args=False, check_argcount=False)
+register_script_function(func_if2, "if2", eval_args=False)
+register_script_function(func_noop, "noop", eval_args=False)
 register_script_function(func_left, "left")
 register_script_function(func_right, "right")
 register_script_function(func_lower, "lower")
@@ -664,3 +762,9 @@ register_script_function(func_firstalphachar, "firstalphachar")
 register_script_function(func_initials, "initials")
 register_script_function(func_firstwords, "firstwords")
 register_script_function(func_truncate, "truncate")
+register_script_function(func_swapprefix, "swapprefix", check_argcount=False)
+register_script_function(func_delprefix, "delprefix", check_argcount=False)
+register_script_function(func_eq_any, "eq_any", check_argcount=False)
+register_script_function(func_ne_all, "ne_all", check_argcount=False)
+register_script_function(func_eq_all, "eq_all", check_argcount=False)
+register_script_function(func_ne_any, "ne_any", check_argcount=False)

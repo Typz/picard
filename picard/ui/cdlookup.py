@@ -18,21 +18,22 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
 from PyQt4 import QtCore, QtGui
+from picard.ui import PicardDialog
 from picard.ui.ui_cdlookup import Ui_Dialog
 from picard.mbxml import artist_credit_from_node, label_info_from_node
 
 
-class CDLookupDialog(QtGui.QDialog):
+class CDLookupDialog(PicardDialog):
 
     def __init__(self, releases, disc, parent=None):
-        QtGui.QDialog.__init__(self, parent)
+        PicardDialog.__init__(self, parent)
         self.releases = releases
         self.disc = disc
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
         self.ui.release_list.setSortingEnabled(True)
         self.ui.release_list.setHeaderLabels([_(u"Album"), _(u"Artist"), _(u"Date"), _(u"Country"),
-            _(u"Labels"), _(u"Catalog #s"), _(u"Barcode")])
+                                              _(u"Labels"), _(u"Catalog #s"), _(u"Barcode")])
         if self.releases:
             for release in self.releases:
                 labels, catalog_numbers = label_info_from_node(release.label_info_list[0])

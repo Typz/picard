@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import datetime
 import glob
 import os
 import re
@@ -17,40 +18,9 @@ if sys.version_info < (2, 6):
 
 args = {}
 
-
 try:
     from py2app.build_app import py2app
     do_py2app = True
-    args['app'] = ['tagger.py']
-    args['name'] = 'Picard'
-    args['options'] = { 'py2app' :
-       {
-          'optimize'       : 2,
-          'argv_emulation' : True,
-          'iconfile'       : 'picard.icns',
-          'frameworks'     : ['libiconv.2.dylib', 'libdiscid.0.dylib'],
-          'resources'      : ['locale'],
-          'includes'       : ['json', 'sip', 'PyQt4', 'picard.util.astrcmp'],
-          'excludes'       : ['pydoc', 'PyQt4.QtDeclarative', 'PyQt4.QtDesigner', 'PyQt4.QtHelp', 'PyQt4.QtMultimedia',
-                              'PyQt4.QtOpenGL', 'PyQt4.QtScript', 'PyQt4.QtScriptTools', 'PyQt4.QtSql', 'PyQt4.QtSvg',
-                              'PyQt4.QtTest', 'PyQt4.QtWebKit', 'PyQt4.QtXml', 'PyQt4.QtXmlPatterns', 'PyQt4.phonon'],
-          'plist'    : { 'CFBundleName' : 'MusicBrainz Picard',
-                         'CFBundleGetInfoString' : 'Picard, the next generation MusicBrainz tagger (see http://musicbrainz.org/doc/MusicBrainz_Picard)',
-                         'CFBundleIdentifier':'org.musicbrainz.picard',
-                         'CFBundleShortVersionString':__version__,
-                         'CFBundleVersion': 'Picard ' + __version__,
-                         'LSMinimumSystemVersion':'10.4.3',
-                         'LSMultipleInstancesProhibited':'true',
-                         # RAK: It biffed when I tried to include your accented characters, luks. :-(
-                         'NSHumanReadableCopyright':'Copyright 2008 Lukas Lalinsky, Robert Kaye',
-                        },
-          'qt_plugins': ['imageformats/libqgif.dylib',
-                         'imageformats/libqjpeg.dylib',
-                         'imageformats/libqtiff.dylib',
-                         'accessible/libqtaccessiblewidgets.dylib']
-       },
-    }
-
 except ImportError:
     do_py2app = False
 
@@ -64,10 +34,58 @@ from distutils.dep_util import newer
 from distutils.dist import Distribution
 from distutils.spawn import find_executable
 
-
 ext_modules = [
     Extension('picard.util.astrcmp', sources=['picard/util/astrcmp.c']),
 ]
+
+py2app_exclude_modules = [
+    'pydoc',
+    'PyQt4.QtDeclarative', 'PyQt4.QtDesigner', 'PyQt4.QtHelp', 'PyQt4.QtMultimedia',
+    'PyQt4.QtOpenGL', 'PyQt4.QtScript', 'PyQt4.QtScriptTools', 'PyQt4.QtSql', 'PyQt4.QtSvg',
+    'PyQt4.QtTest', 'PyQt4.QtWebKit', 'PyQt4.QtXml', 'PyQt4.QtXmlPatterns', 'PyQt4.phonon'
+]
+
+py2exe_exclude_modules = [
+    'socket', 'select',
+]
+
+exclude_modules = [
+    'ssl', 'bz2',
+    'distutils', 'unittest',
+    'bdb', 'calendar', 'difflib', 'doctest', 'dummy_thread', 'gzip',
+    'optparse', 'pdb', 'plistlib', 'pyexpat', 'quopri', 'repr',
+    'stringio', 'tarfile', 'uu', 'zipfile'
+]
+
+if do_py2app:
+    args['app'] = ['tagger.py']
+    args['name'] = 'Picard'
+    args['options'] = { 'py2app' :
+        {
+            'optimize'       : 2,
+            'argv_emulation' : True,
+            'iconfile'       : 'picard.icns',
+            'frameworks'     : ['libiconv.2.dylib', 'libdiscid.0.dylib'],
+            'resources'      : ['locale'],
+            'includes'       : ['json', 'sip', 'PyQt4', 'ntpath'] + [e.name for e in ext_modules],
+            'excludes'  : exclude_modules + py2app_exclude_modules,
+            'plist'     : { 'CFBundleName' : 'MusicBrainz Picard',
+                            'CFBundleGetInfoString' : 'Picard, the next generation MusicBrainz tagger (see http://musicbrainz.org/doc/MusicBrainz_Picard)',
+                            'CFBundleIdentifier':'org.musicbrainz.picard',
+                            'CFBundleShortVersionString':__version__,
+                            'CFBundleVersion': 'Picard ' + __version__,
+                            'LSMinimumSystemVersion':'10.4.3',
+                            'LSMultipleInstancesProhibited':'true',
+                            # RAK: It biffed when I tried to include your accented characters, luks. :-(
+                            'NSHumanReadableCopyright':'Copyright 2008 Lukas Lalinsky, Robert Kaye',
+                          },
+            'qt_plugins': ['imageformats/libqgif.dylib',
+                           'imageformats/libqjpeg.dylib',
+                           'imageformats/libqtiff.dylib',
+                           'accessible/libqtaccessiblewidgets.dylib']
+        },
+    }
+
 
 tx_executable = find_executable('tx')
 
@@ -248,15 +266,53 @@ class picard_build(build):
         build.run(self)
 
 
+def py_from_ui(uifile):
+    return "ui_%s.py" % os.path.splitext(os.path.basename(uifile))[0]
+
+
+def py_from_ui_with_defaultdir(uifile):
+    return os.path.join("picard", "ui", py_from_ui(uifile))
+
+
+def ui_files():
+    for uifile in glob.glob("ui/*.ui"):
+        yield (uifile, py_from_ui_with_defaultdir(uifile))
+
+
 class picard_build_ui(Command):
     description = "build Qt UI files and resources"
-    user_options = []
+    user_options = [
+        ("files=", None, "comma-separated list of files to rebuild"),
+    ]
 
     def initialize_options(self):
-        pass
+        self.files = []
 
     def finalize_options(self):
-        pass
+        if self.files:
+            files = []
+            for f in self.files.split(","):
+                head, tail = os.path.split(f)
+                m = re.match(r'(?:ui_)?([^.]+)', tail)
+                if m:
+                    name = m.group(1)
+                else:
+                    log.warn('ignoring %r (cannot extract base name)' % f)
+                    continue
+                uiname = name + '.ui'
+                uifile = os.path.join(head, uiname)
+                if os.path.isfile(uifile):
+                    pyfile = os.path.join(os.path.dirname(uifile),
+                                          py_from_ui(uifile))
+                    files.append((uifile, pyfile))
+                else:
+                    uifile = os.path.join('ui', uiname)
+                    if os.path.isfile(uifile):
+                        files.append((uifile,
+                                      py_from_ui_with_defaultdir(uifile)))
+                    else:
+                        log.warn('ignoring %r' % f)
+            self.files = files
 
     def run(self):
         from PyQt4 import uic
@@ -268,19 +324,30 @@ class picard_build_ui(Command):
                 r'\b_translate\(.*?, (.*?), None\)')
         )
 
-        for uifile in glob.glob("ui/*.ui"):
-            pyfile = "ui_%s.py" % os.path.splitext(os.path.basename(uifile))[0]
-            pyfile = os.path.join("picard", "ui", pyfile)
-            if newer(uifile, pyfile):
-                log.info("compiling %s -> %s", uifile, pyfile)
-                tmp = StringIO()
-                uic.compileUi(uifile, tmp)
-                source = tmp.getvalue()
-                for r in list(_translate_re):
-                    source = r.sub(r'_(\1)', source)
-                f = open(pyfile, "w")
-                f.write(source)
-                f.close()
+        def compile_ui(uifile, pyfile):
+            log.info("compiling %s -> %s", uifile, pyfile)
+            tmp = StringIO()
+            uic.compileUi(uifile, tmp)
+            source = tmp.getvalue()
+            rc = re.compile(r'\n\n#.*?(?=\n\n)', re.MULTILINE|re.DOTALL)
+            comment = (u"\n\n# Automatically generated - don't edit.\n"
+                       u"# Use `python setup.py %s` to update it."
+                       % _get_option_name(self))
+            for r in list(_translate_re):
+                source = r.sub(r'_(\1)', source)
+                source = rc.sub(comment, source)
+            f = open(pyfile, "w")
+            f.write(source)
+            f.close()
+
+        if self.files:
+            for uifile, pyfile in self.files:
+                compile_ui(uifile, pyfile)
+        else:
+            for uifile, pyfile in ui_files():
+                if newer(uifile, pyfile):
+                   compile_ui(uifile, pyfile)
+
         from resources import compile, makeqrc
         makeqrc.main()
         compile.main()
@@ -298,9 +365,7 @@ class picard_clean_ui(Command):
 
     def run(self):
         from PyQt4 import uic
-        for uifile in glob.glob("ui/*.ui"):
-            pyfile = "ui_%s.py" % os.path.splitext(os.path.basename(uifile))[0]
-            pyfile = os.path.join("picard", "ui", pyfile)
+        for uifile, pyfile in ui_files():
             try:
                 os.unlink(pyfile)
                 log.info("removing %s", pyfile)
@@ -343,7 +408,15 @@ class picard_get_po_files(Command):
 
 _regen_pot_description = "Regenerate po/picard.pot, parsing source tree for new or updated strings"
 try:
+    from babel import __version__ as babel_version
     from babel.messages import frontend as babel
+
+    def versiontuple(v):
+        return tuple(map(int, (v.split("."))))
+
+    # input_dirs are incorrectly handled in babel versions < 1.0
+    # http://babel.edgewall.org/ticket/232
+    input_dirs_workaround = versiontuple(babel_version) < (1, 0, 0)
 
     class picard_regen_pot_file(babel.extract_messages):
         description = _regen_pot_description
@@ -353,6 +426,13 @@ try:
             babel.extract_messages.initialize_options(self)
             self.output_file = 'po/picard.pot'
             self.input_dirs = 'contrib, picard'
+            if self.input_dirs and input_dirs_workaround:
+                self._input_dirs = self.input_dirs
+
+        def finalize_options(self):
+            babel.extract_messages.finalize_options(self)
+            if input_dirs_workaround and self._input_dirs:
+                self.input_dirs = re.split(',\s*', self._input_dirs)
 
 except ImportError:
     class picard_regen_pot_file(Command):
@@ -377,8 +457,8 @@ def _get_option_name(obj):
     raise Exception("No such command class")
 
 
-class picard_update_countries(Command):
-    description = "Regenerate countries.py"
+class picard_update_constants(Command):
+    description = "Regenerate attributes.py and countries.py"
     user_options = [
         ('skip-pull', None, "skip the tx pull steps"),
     ]
@@ -396,22 +476,22 @@ class picard_update_countries(Command):
 
         from babel.messages import pofile
 
-        countries = dict()
         if not self.skip_pull:
             txpull_cmd = [
                 tx_executable,
                 'pull',
                 '--force',
-                '--resource=musicbrainz.countries',
+                '--resource=musicbrainz.attributes,musicbrainz.countries',
                 '--source',
                 '--language=none',
             ]
             self.spawn(txpull_cmd)
 
-        potfile = os.path.join('po', 'countries', 'countries.pot')
+        countries = dict()
+        countries_potfile = os.path.join('po', 'countries', 'countries.pot')
         isocode_comment = u'iso.code:'
-        with open(potfile, 'rb') as f:
-            log.info('Parsing %s' % potfile)
+        with open(countries_potfile, 'rb') as f:
+            log.info('Parsing %s' % countries_potfile)
             po = pofile.read_po(f)
             for message in po:
                 if not message.id or not isinstance(message.id, unicode):
@@ -425,6 +505,28 @@ class picard_update_countries(Command):
             else:
                 sys.exit('Failed to extract any country code/name !')
 
+        attributes = dict()
+        attributes_potfile = os.path.join('po', 'attributes', 'attributes.pot')
+        extract_attributes = (
+            u'DB:cover_art_archive.art_type/name',
+            u'DB:medium_format/name',
+            u'DB:release_group_primary_type/name',
+            u'DB:release_group_secondary_type/name',
+        )
+        with open(attributes_potfile, 'rb') as f:
+            log.info('Parsing %s' % attributes_potfile)
+            po = pofile.read_po(f)
+            for message in po:
+                if not message.id or not isinstance(message.id, unicode):
+                    continue
+                for loc, pos in message.locations:
+                    if loc in extract_attributes:
+                        attributes[u"%s:%03d" % (loc, pos)] = message.id
+            if attributes:
+                self.attributes_py_file(attributes)
+            else:
+                sys.exit('Failed to extract any attribute !')
+
     def countries_py_file(self, countries):
         header = (u"# -*- coding: utf-8 -*-\n"
                   u"# Automatically generated - don't edit.\n"
@@ -433,7 +535,7 @@ class picard_update_countries(Command):
                   u"RELEASE_COUNTRIES = {{\n")
         line   =  u"    u'{code}': u'{name}',\n"
         footer =  u"}}\n"
-        filename = os.path.join('picard', 'countries.py')
+        filename = os.path.join('picard', 'const', 'countries.py')
         with open(filename, 'w') as countries_py:
             def write_utf8(s, **kwargs):
                 countries_py.write(s.format(**kwargs).encode('utf-8'))
@@ -444,6 +546,52 @@ class picard_update_countries(Command):
             write_utf8(footer)
             log.info("%s was rewritten (%d countries)" % (filename,
                                                           len(countries)))
+
+    def attributes_py_file(self, attributes):
+        header = (u"# -*- coding: utf-8 -*-\n"
+                  u"# Automatically generated - don't edit.\n"
+                  u"# Use `python setup.py {option}` to update it.\n"
+                  u"\n"
+                  u"MB_ATTRIBUTES = {{\n")
+        line   =  u"    u'{key}': u'{value}',\n"
+        footer =  u"}}\n"
+        filename = os.path.join('picard', 'const', 'attributes.py')
+        with open(filename, 'w') as attributes_py:
+            def write_utf8(s, **kwargs):
+                attributes_py.write(s.format(**kwargs).encode('utf-8'))
+
+            write_utf8(header, option=_get_option_name(self))
+            for key, value in sorted(attributes.items(), key=lambda (k,v): k):
+                write_utf8(line, key=key, value=value.replace("'", "\\'"))
+            write_utf8(footer)
+            log.info("%s was rewritten (%d attributes)" % (filename,
+                                                           len(attributes)))
+
+
+class picard_patch_version(Command):
+    description = "Update PICARD_BUILD_VERSION_STR for daily builds"
+    user_options = [
+        ('platform=', 'p', "platform for the build version, ie. osx or win"),
+    ]
+
+    def initialize_options(self):
+        self.platform = 'unknown'
+
+    def finalize_options(self):
+        pass
+
+    def run(self):
+        self.patch_version('picard/__init__.py')
+
+    def patch_version(self, filename):
+        regex = re.compile(r'^PICARD_BUILD_VERSION_STR\s*=.*$', re.MULTILINE)
+        with open(filename, 'r+b') as f:
+            source = f.read()
+            build = self.platform + '_' + datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')
+            patched_source = regex.sub('PICARD_BUILD_VERSION_STR = "%s"' % build, source)
+            f.seek(0)
+            f.write(patched_source)
+            f.truncate()
 
 
 def cflags_to_include_dirs(cflags):
@@ -460,6 +608,7 @@ def _picard_get_locale_files():
     path_domain = {
         'po': 'picard',
         os.path.join('po', 'countries'): 'picard-countries',
+        os.path.join('po', 'attributes'): 'picard-attributes',
     }
     for path, domain in path_domain.iteritems():
         for filepath in glob.glob(os.path.join(path, '*.po')):
@@ -469,16 +618,32 @@ def _picard_get_locale_files():
     return locales
 
 
+def _explode_path(path):
+    """Return a list of components of the path (ie. "/a/b" -> ["a", "b"])"""
+    components = []
+    while True:
+        (path,tail) = os.path.split(path)
+        if tail == "":
+            components.reverse()
+            return components
+        components.append(tail)
+
+
+def _picard_packages():
+    "Build a tuple containing each module under picard/"
+    packages = []
+    for subdir, dirs, files in os.walk("picard"):
+        packages.append(".".join(_explode_path(subdir)))
+    return tuple(sorted(packages))
+
+
 args2 = {
     'name': 'picard',
     'version': __version__,
     'description': 'The next generation MusicBrainz tagger',
     'url': 'http://musicbrainz.org/doc/MusicBrainz_Picard',
     'package_dir': {'picard': 'picard'},
-    'packages': ('picard', 'picard.browser',
-                 'picard.plugins', 'picard.formats',
-                 'picard.formats.mutagenext', 'picard.ui',
-                 'picard.ui.options', 'picard.util'),
+    'packages': _picard_packages(),
     'locales': _picard_get_locale_files(),
     'ext_modules': ext_modules,
     'data_files': [],
@@ -490,9 +655,10 @@ args2 = {
         'clean_ui': picard_clean_ui,
         'install': picard_install,
         'install_locales': picard_install_locales,
-        'update_countries': picard_update_countries,
+        'update_constants': picard_update_constants,
         'get_po_files': picard_get_po_files,
         'regen_pot_file': picard_regen_pot_file,
+        'patch_version': picard_patch_version,
     },
     'scripts': ['scripts/picard'],
 }
@@ -503,6 +669,22 @@ def generate_file(infilename, outfilename, variables):
     with open(infilename, "rt") as f_in:
         with open(outfilename, "wt") as f_out:
             f_out.write(f_in.read() % variables)
+
+
+def contrib_plugin_files():
+    plugin_files = {}
+    dist_root = os.path.join("contrib", "plugins")
+    for root, dirs, files in os.walk(dist_root):
+        file_root = os.path.join('plugins', os.path.relpath(root, dist_root)) \
+            if root != dist_root else 'plugins'
+        for file in files:
+            if file.endswith(".py"):
+                if file_root in plugin_files:
+                    plugin_files[file_root].append(os.path.join(root, file))
+                else:
+                    plugin_files[file_root] = [os.path.join(root, file)]
+    data_files = [(x, sorted(y)) for x, y in plugin_files.iteritems()]
+    return sorted(data_files, key=lambda x: x[0])
 
 
 try:
@@ -524,11 +706,7 @@ try:
                                   find_file_in_path("PyQt4/plugins/imageformats/qtiff4.dll")]))
             self.distribution.data_files.append(
                 ("accessible", [find_file_in_path("PyQt4/plugins/accessible/qtaccessiblewidgets4.dll")]))
-            self.distribution.data_files.append(
-                ("plugins", ["contrib/plugins/discnumber.py",
-                             "contrib/plugins/classicdiscnumber.py",
-                             "contrib/plugins/titlecase.py",
-                             "contrib/plugins/featartist.py"]))
+            self.distribution.data_files += contrib_plugin_files()
 
             py2exe.run(self)
             print "*** creating the NSIS setup script ***"
@@ -555,7 +733,7 @@ try:
     args['options'] = {
         'bdist_nsis': {
             'includes': ['json', 'sip'] + [e.name for e in ext_modules],
-            'excludes': ['ssl', 'socket', 'bz2'],
+            'excludes': exclude_modules + py2exe_exclude_modules,
             'optimize': 2,
         },
     }

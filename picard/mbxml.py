@@ -19,7 +19,8 @@
 
 import re
 from picard import config
-from picard.util import format_time, translate_from_sortname, parse_amazon_url
+from picard.util import (format_time, translate_from_sortname, parse_amazon_url,
+                         linear_combination_of_weights)
 from picard.const import RELEASE_FORMATS
 
 
@@ -99,6 +100,7 @@ def _relations_to_metadata(relation_lists, m):
         elif relation_list.target_type == 'work':
             for relation in relation_list.relation:
                 if relation.type == 'performance':
+                    performance_to_metadata(relation, m)
                     work_to_metadata(relation.work[0], m)
         elif relation_list.target_type == 'url':
             for relation in relation_list.relation:
@@ -117,18 +119,35 @@ def _translate_artist_node(node):
         locale = config.setting["artist_locale"]
         lang = locale.split("_")[0]
         if "alias_list" in node.children:
-            found_primary = found_locale = False
+            result = (-1, (None, None))
             for alias in node.alias_list[0].alias:
-                if alias.attribs.get("type") != "Search hint" and "locale" in alias.attribs:
-                    if alias.locale == locale:
-                        transl, translsort = alias.text, alias.attribs["sort_name"]
-                        if alias.attribs.get("primary") == "primary":
-                            return (transl, translsort)
-                        found_locale = True
-                    elif alias.locale == lang and not (found_locale or found_primary):
-                        transl, translsort = alias.text, alias.attribs["sort_name"]
-                        if alias.attribs.get("primary") == "primary":
-                            found_primary = True
+                if alias.attribs.get("primary") != "primary":
+                    continue
+                if "locale" not in alias.attribs:
+                    continue
+                parts = []
+                if alias.locale == locale:
+                    score = 0.8
+                elif alias.locale == lang:
+                    score = 0.6
+                elif alias.locale.split("_")[0] == lang:
+                    score = 0.4
+                else:
+                    continue
+                parts.append((score, 5))
+                if alias.attribs.get("type") == u"Artist name":
+                    score = 0.8
+                elif alias.attribs.get("type") == u"Legal Name":
+                    score = 0.5
+                else:
+                    # as 2014/09/19, only Artist or Legal names should have the
+                    # Primary flag
+                    score = 0.0
+                parts.append((score, 5))
+                comb = linear_combination_of_weights(parts)
+                if comb > result[0]:
+                    result = (comb, (alias.text, alias.attribs["sort_name"]))
+            transl, translsort = result[1]
         if not transl:
             translsort = node.sort_name[0].text
             transl = translate_from_sortname(node.name[0].text, translsort)
@@ -141,6 +160,7 @@ def artist_credit_from_node(node):
     artist = ""
     artistsort = ""
     artists = []
+    artistssort = []
     standardize_artists = config.setting["standardize_artists"]
     for credit in node.name_credit:
         a = credit.artist[0]
@@ -154,24 +174,28 @@ def artist_credit_from_node(node):
         artist += name
         artistsort += translated_sort
         artists.append(name)
+        artistssort.append(translated_sort)
         if 'joinphrase' in credit.attribs:
             artist += credit.joinphrase
             artistsort += credit.joinphrase
-    return (artist, artistsort, artists)
+    return (artist, artistsort, artists, artistssort)
 
 
 def artist_credit_to_metadata(node, m, release=False):
     ids = [n.artist[0].id for n in node.name_credit]
-    artist, artistsort, artists = artist_credit_from_node(node)
-    m["artists"] = artists
+    artist, artistsort, artists, artistssort = artist_credit_from_node(node)
     if release:
         m["musicbrainz_albumartistid"] = ids
         m["albumartist"] = artist
         m["albumartistsort"] = artistsort
+        m["~albumartists"] = artists
+        m["~albumartists_sort"] = artistssort
     else:
         m["musicbrainz_artistid"] = ids
         m["artist"] = artist
         m["artistsort"] = artistsort
+        m["artists"] = artists
+        m["~artists_sort"] = artistsort
 
 
 def label_info_from_node(node):
@@ -216,7 +240,7 @@ def media_formats_from_node(node):
 def track_to_metadata(node, track):
     m = track.metadata
     recording_to_metadata(node.recording[0], track)
-    m['musicbrainz_trackid'] = node.attribs['id']
+    m.add_unique('musicbrainz_trackid', node.id)
     # overwrite with data we have on the track
     for name, nodes in node.children.iteritems():
         if not nodes:
@@ -225,6 +249,8 @@ def track_to_metadata(node, track):
             m['title'] = nodes[0].text
         elif name == 'position':
             m['tracknumber'] = nodes[0].text
+        elif name == 'number':
+            m['~musicbrainz_tracknumber'] = nodes[0].text
         elif name == 'length' and nodes[0].text:
             m.length = int(nodes[0].text)
         elif name == 'artist_credit':
@@ -235,7 +261,7 @@ def track_to_metadata(node, track):
 def recording_to_metadata(node, track):
     m = track.metadata
     m.length = 0
-    m['musicbrainz_recordingid'] = node.attribs['id']
+    m.add_unique('musicbrainz_recordingid', node.id)
     for name, nodes in node.children.iteritems():
         if not nodes:
             continue
@@ -261,8 +287,15 @@ def recording_to_metadata(node, track):
     m['~length'] = format_time(m.length)
 
 
+def performance_to_metadata(relation, m):
+    if 'attribute_list' in relation.children:
+        if 'attribute' in relation.attribute_list[0].children:
+            for attribute in relation.attribute_list[0].attribute:
+                m.add_unique("~performance_attributes", attribute.text)
+
+
 def work_to_metadata(work, m):
-    m.add("musicbrainz_workid", work.attribs['id'])
+    m.add_unique("musicbrainz_workid", work.id)
     if 'language' in work.children:
         m.add_unique("language", work.language[0].text)
     if 'title' in work.children:
@@ -287,7 +320,7 @@ def medium_to_metadata(node, m):
 
 def release_to_metadata(node, m, album=None):
     """Make metadata dict from a XML 'release' node."""
-    m['musicbrainz_albumid'] = node.attribs['id']
+    m.add_unique('musicbrainz_albumid', node.id)
     for name, nodes in node.children.iteritems():
         if not nodes:
             continue
@@ -324,7 +357,7 @@ def release_to_metadata(node, m, album=None):
 
 def release_group_to_metadata(node, m, release_group=None):
     """Make metadata dict from a XML 'release-group' node taken from inside a 'release' node."""
-    m['musicbrainz_releasegroupid'] = node.attribs['id']
+    m.add_unique('musicbrainz_releasegroupid', node.id)
     for name, nodes in node.children.iteritems():
         if not nodes:
             continue

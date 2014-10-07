@@ -19,13 +19,14 @@
 
 from PyQt4 import QtCore, QtGui
 from picard.util.tags import TAG_NAMES
+from picard.ui import PicardDialog
 from picard.ui.ui_edittagdialog import Ui_EditTagDialog
 
 
-class EditTagDialog(QtGui.QDialog):
+class EditTagDialog(PicardDialog):
 
     def __init__(self, window, tag):
-        QtGui.QDialog.__init__(self, window)
+        PicardDialog.__init__(self, window)
         self.ui = Ui_EditTagDialog()
         self.ui.setupUi(self)
         self.window = window
@@ -146,7 +147,7 @@ class EditTagDialog(QtGui.QDialog):
             self._modified_tag()[row] = value
             # add tags to the completer model once they get values
             cm = self.completer.model()
-            if not cm.stringList().contains(self.tag):
+            if self.tag not in cm.stringList():
                 cm.insertRows(0, 1)
                 cm.setData(cm.index(0, 0), self.tag)
                 cm.sort(0)

@@ -9,11 +9,13 @@ from distutils.dep_util import newer
 It will update qrc file only if images newer than it are found
 """
 
+
 def tryint(s):
     try:
         return int(s)
     except:
         return s
+
 
 def natsort_key(s):
     return [ tryint(c) for c in re.split('(\d+)', s) ]
@@ -27,6 +29,7 @@ def find_files(topdir, directory, pattern):
                 filepath = os.path.join(root, basename)
                 filename = os.path.relpath(filepath, topdir)
                 yield filename
+
 
 def main():
     scriptdir = os.path.dirname(os.path.abspath(__file__))
@@ -44,7 +47,7 @@ def main():
         with open(qrcfile, 'wb+') as f:
             f.write('<!DOCTYPE RCC><RCC version="1.0">\n<qresource>\n')
             for filename in sorted(images, key=natsort_key):
-                f.write('    <file>%s</file>\n' % filename)
+                f.write('    <file>%s</file>\n' % filename.replace('\\', '/'))
             f.write('</qresource>\n</RCC>\n')
             log.info("File %s written, %d images" % (qrcfile, len(images)))
 

@@ -4,40 +4,19 @@ import os.path
 import unittest
 from picard import util
 
-
-class UnaccentTest(unittest.TestCase):
-
-    def test_correct(self):
-        self.assertEqual(util.unaccent(u"Lukáš"), u"Lukas")
-        self.assertEqual(util.unaccent(u"Björk"), u"Bjork")
-        self.assertEqual(util.unaccent(u"Trentemøller"), u"Trentemoller")
-        self.assertEqual(util.unaccent(u"小室哲哉"), u"小室哲哉")
-        self.assertEqual(util.unaccent(u"Ænima"), u"AEnima")
-        self.assertEqual(util.unaccent(u"ænima"), u"aenima")
-
-    def test_incorrect(self):
-        self.assertNotEqual(util.unaccent(u"Björk"), u"Björk")
-        self.assertNotEqual(util.unaccent(u"小室哲哉"), u"Tetsuya Komuro")
-
-
-class ReplaceNonAsciiTest(unittest.TestCase):
-
-    def test_correct(self):
-        self.assertEqual(util.replace_non_ascii(u"Lukáš"), u"Luk__")
-        self.assertEqual(util.replace_non_ascii(u"Björk"), u"Bj_rk")
-        self.assertEqual(util.replace_non_ascii(u"Trentemøller"), u"Trentem_ller")
-        self.assertEqual(util.replace_non_ascii(u"小室哲哉"), u"____")
-
-    def test_incorrect(self):
-        self.assertNotEqual(util.replace_non_ascii(u"Lukáš"), u"Lukáš")
-        self.assertNotEqual(util.replace_non_ascii(u"Lukáš"), u"Luk____")
+import __builtin__
+# ensure _() is defined
+if '_' not in __builtin__.__dict__:
+    __builtin__.__dict__['_'] = lambda a: a
 
 
 class ReplaceWin32IncompatTest(unittest.TestCase):
 
     def test_correct(self):
         self.assertEqual(util.replace_win32_incompat("c:\\test\\te\"st/2"),
-                             "c_\\test\\te_st/2")
+                             "c:\\test\\te_st/2")
+        self.assertEqual(util.replace_win32_incompat("c:\\test\\d:/2"),
+                             "c:\\test\\d_/2")
         self.assertEqual(util.replace_win32_incompat("A\"*:<>?|b"),
                              "A_______b")
 
@@ -92,36 +71,6 @@ class FormatTimeTest(unittest.TestCase):
         self.assertEqual("2:59", util.format_time(179499))
 
 
-class LoadReleaseTypeScoresTest(unittest.TestCase):
-
-    def test_valid(self):
-        release_type_score_config = "Album 1.0 Single 0.5 EP 0.5 Compilation 0.5 Soundtrack 0.5 Spokenword 0.5 Interview 0.2 Audiobook 0.0 Live 0.5 Remix 0.4 Other 0.0"
-        release_type_scores = util.load_release_type_scores(release_type_score_config)
-        self.assertEqual(1.0, release_type_scores["Album"])
-        self.assertEqual(0.5, release_type_scores["Single"])
-        self.assertEqual(0.2, release_type_scores["Interview"])
-        self.assertEqual(0.0, release_type_scores["Audiobook"])
-        self.assertEqual(0.4, release_type_scores["Remix"])
-
-    def test_invalid(self):
-        release_type_score_config = "Album 1.0 Other"
-        release_type_scores = util.load_release_type_scores(release_type_score_config)
-        self.assertEqual(1.0, release_type_scores["Album"])
-        self.assertEqual(0.0, release_type_scores["Other"])
-
-
-class SaveReleaseTypeScoresTest(unittest.TestCase):
-
-    def test(self):
-        expected = "Album 1.00 Single 0.50 Other 0.00"
-        scores = {"Album": 1.0, "Single": 0.5, "Other": 0.0}
-        saved_scores = util.save_release_type_scores(scores)
-        self.assertTrue("Album 1.00" in saved_scores)
-        self.assertTrue("Single 0.50" in saved_scores)
-        self.assertTrue("Other 0.00" in saved_scores)
-        self.assertEqual(6, len(saved_scores.split()))
-
-
 class HiddenPathTest(unittest.TestCase):
 
     def test(self):
@@ -135,3 +84,138 @@ class HiddenPathTest(unittest.TestCase):
         self.assertEqual(util.is_hidden_path('/a/./.c.mp3'), True)
         self.assertEqual(util.is_hidden_path('/a/../c.mp3'), False)
         self.assertEqual(util.is_hidden_path('/a/../.c.mp3'), True)
+
+
+class TagsTest(unittest.TestCase):
+
+    def test_display_tag_name(self):
+        dtn = util.tags.display_tag_name
+        self.assertEqual(dtn('tag'), 'tag')
+        self.assertEqual(dtn('tag:desc'), 'tag [desc]')
+        self.assertEqual(dtn('tag:'), 'tag')
+        self.assertEqual(dtn('originalyear'), 'Original Year')
+        self.assertEqual(dtn('originalyear:desc'), 'Original Year [desc]')
+        self.assertEqual(dtn('~length'), 'Length')
+        self.assertEqual(dtn('~lengthx'), '~lengthx')
+        self.assertEqual(dtn(''), '')
+
+
+class LinearCombinationTest(unittest.TestCase):
+
+    def test_0(self):
+        parts = []
+        self.assertEqual(util.linear_combination_of_weights(parts), 0.0)
+
+    def test_1(self):
+        parts = [(1.0, 1), (1.0, 1), (1.0, 1)]
+        self.assertEqual(util.linear_combination_of_weights(parts), 1.0)
+
+    def test_2(self):
+        parts = [(0.0, 1), (0.0, 0), (1.0, 0)]
+        self.assertEqual(util.linear_combination_of_weights(parts), 0.0)
+
+    def test_3(self):
+        parts = [(0.0, 1), (1.0, 1)]
+        self.assertEqual(util.linear_combination_of_weights(parts), 0.5)
+
+    def test_4(self):
+        parts = [(0.5, 4), (1.0, 1)]
+        self.assertEqual(util.linear_combination_of_weights(parts), 0.6)
+
+    def test_5(self):
+        parts = [(0.95, 100), (0.05, 399), (0.0, 1), (1.0, 0)]
+        self.assertEqual(util.linear_combination_of_weights(parts), 0.2299)
+
+    def test_6(self):
+        parts = [(-0.5, 4)]
+        self.assertRaises(ValueError, util.linear_combination_of_weights, parts)
+
+    def test_7(self):
+        parts = [(0.5, -4)]
+        self.assertRaises(ValueError, util.linear_combination_of_weights, parts)
+
+    def test_8(self):
+        parts = [(1.5, 4)]
+        self.assertRaises(ValueError, util.linear_combination_of_weights, parts)
+
+    def test_9(self):
+        parts = ((1.5, 4))
+        self.assertRaises(TypeError, util.linear_combination_of_weights, parts)
+
+
+class AlbumArtistFromPathTest(unittest.TestCase):
+
+    def test_album_artist_from_path(self):
+        aafp = util.album_artist_from_path
+        from picard.file import File
+        file_1 = r"/10cc/Original Soundtrack/02 I'm Not in Love.mp3"
+        file_2 = r"/10cc - Original Soundtrack/02 I'm Not in Love.mp3"
+        file_3 = r"/Original Soundtrack/02 I'm Not in Love.mp3"
+        file_4 = r"/02 I'm Not in Love.mp3"
+        self.assertEqual(aafp(file_1, '', ''), ('Original Soundtrack', '10cc'))
+        self.assertEqual(aafp(file_2, '', ''), ('Original Soundtrack', '10cc'))
+        self.assertEqual(aafp(file_3, '', ''), ('Original Soundtrack', ''))
+        self.assertEqual(aafp(file_4, '', ''), ('', ''))
+        self.assertEqual(aafp(file_1, 'album', ''), ('album', ''))
+        self.assertEqual(aafp(file_2, 'album', ''), ('album', ''))
+        self.assertEqual(aafp(file_3, 'album', ''), ('album', ''))
+        self.assertEqual(aafp(file_4, 'album', ''), ('album', ''))
+        self.assertEqual(aafp(file_1, '', 'artist'), ('Original Soundtrack', 'artist'))
+        self.assertEqual(aafp(file_2, '', 'artist'), ('Original Soundtrack', 'artist'))
+        self.assertEqual(aafp(file_3, '', 'artist'), ('Original Soundtrack', 'artist'))
+        self.assertEqual(aafp(file_4, '', 'artist'), ('', 'artist'))
+        self.assertEqual(aafp(file_1, 'album', 'artist'), ('album', 'artist'))
+        self.assertEqual(aafp(file_2, 'album', 'artist'), ('album', 'artist'))
+        self.assertEqual(aafp(file_3, 'album', 'artist'), ('album', 'artist'))
+        self.assertEqual(aafp(file_4, 'album', 'artist'), ('album', 'artist'))
+
+
+from picard.util import imageinfo
+
+
+class ImageInfoTest(unittest.TestCase):
+
+    def test_gif(self):
+        file = os.path.join('test', 'data', 'mb.gif')
+
+        with open(file, 'rb') as f:
+            self.assertEqual(
+                imageinfo.identify(f.read()),
+                (140, 96, 'image/gif', '.gif', 5806)
+            )
+
+    def test_png(self):
+        file = os.path.join('test', 'data', 'mb.png')
+
+        with open(file, 'rb') as f:
+            self.assertEqual(
+                imageinfo.identify(f.read()),
+                (140, 96, 'image/png', '.png', 15692)
+            )
+
+    def test_jpeg(self):
+        file = os.path.join('test', 'data', 'mb.jpg',)
+
+        with open(file, 'rb') as f:
+            self.assertEqual(
+                imageinfo.identify(f.read()),
+                (140, 96, 'image/jpeg', '.jpg', 8550)
+            )
+
+    def test_not_enough_data(self):
+        self.assertRaises(imageinfo.IdentificationError,
+                          imageinfo.identify, "x")
+        self.assertRaises(imageinfo.NotEnoughData, imageinfo.identify, "x")
+
+    def test_invalid_data(self):
+        self.assertRaises(imageinfo.IdentificationError,
+                          imageinfo.identify, "x" * 20)
+        self.assertRaises(imageinfo.UnrecognizedFormat,
+                          imageinfo.identify, "x" * 20)
+
+    def test_invalid_png_data(self):
+        data = '\x89PNG\x0D\x0A\x1A\x0A' + "x" * 20
+        self.assertRaises(imageinfo.IdentificationError,
+                          imageinfo.identify, data)
+        self.assertRaises(imageinfo.UnrecognizedFormat,
+                          imageinfo.identify, data)

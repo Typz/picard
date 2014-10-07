@@ -144,7 +144,7 @@ class TagDiff(object):
 class MetadataBox(QtGui.QTableWidget):
 
     options = (
-        config.IntListOption("persist", "metadata_box_sizes", [150, 300, 300]),
+        config.Option("persist", "metadatabox_header_state", QtCore.QByteArray()),
         config.BoolOption("persist", "show_changes_first", False)
     )
 
@@ -156,6 +156,7 @@ class MetadataBox(QtGui.QTableWidget):
         self.setColumnCount(3)
         self.setHorizontalHeaderLabels((_("Tag"), _("Original Value"), _("New Value")))
         self.horizontalHeader().setStretchLastSection(True)
+        self.horizontalHeader().setResizeMode(QtGui.QHeaderView.Stretch)
         self.horizontalHeader().setClickable(False)
         self.verticalHeader().setDefaultSectionSize(21)
         self.verticalHeader().setVisible(False)
@@ -359,7 +360,7 @@ class MetadataBox(QtGui.QTableWidget):
         clear_existing_tags = config.setting["clear_existing_tags"]
 
         for file in files:
-            new_metadata = file.metadata
+            new_metadata = file.new_metadata
             orig_metadata = file.orig_metadata
             tags = set(new_metadata.keys() + orig_metadata.keys())
 
@@ -374,7 +375,7 @@ class MetadataBox(QtGui.QTableWidget):
                 tag_diff.add(name, orig_values, new_values, clear_existing_tags)
 
             tag_diff.add("~length",
-                str(orig_metadata.length), str(new_metadata.length), False)
+                         str(orig_metadata.length), str(new_metadata.length), False)
 
         for track in tracks:
             if track.num_linked_files == 0:
@@ -388,7 +389,9 @@ class MetadataBox(QtGui.QTableWidget):
                 tag_diff.objects += 1
 
         all_tags = set(orig_tags.keys() + new_tags.keys())
-        tag_names = COMMON_TAGS + sorted(all_tags.difference(COMMON_TAGS))
+        tag_names = COMMON_TAGS + \
+                    sorted(all_tags.difference(COMMON_TAGS),
+                           key=lambda x: display_tag_name(x).lower())
 
         if config.persist["show_changes_first"]:
             tags_by_status = {}
@@ -460,43 +463,13 @@ class MetadataBox(QtGui.QTableWidget):
         font.setItalic(italic)
         item.setFont(font)
 
-    def _resize_column(self, i, size):
-        header = self.horizontalHeader()
-        nsize = max(size, header.sectionSizeHint(i))
-        header.resizeSection(i, nsize)
-
     def restore_state(self):
-        sizes = config.persist["metadata_box_sizes"]
+        state = config.persist["metadatabox_header_state"]
         header = self.horizontalHeader()
-        try:
-            for i in range(header.count() - 1):
-                self._resize_column(i, sizes[i])
-        except IndexError:
-            pass
-        self.resize_columns()
+        header.restoreState(state)
+        header.setResizeMode(QtGui.QHeaderView.Interactive)
 
     def save_state(self):
-        sizes = []
         header = self.horizontalHeader()
-        for i in range(header.count()):
-            sizes.append(header.sectionSize(i))
-        config.persist["metadata_box_sizes"] = sizes
-
-    def resize_columns(self):
-        header = self.horizontalHeader()
-        width = header.length()
-        ncols = header.count()
-        visible_width = self.contentsRect().width()
-        scroll = self.verticalScrollBar()
-        if scroll.isVisible():
-            width -= scroll.width()
-            visible_width -= scroll.width()
-        if width != visible_width:
-            for i in range(ncols - 1):
-                newsize = int(round((float(visible_width) * header.sectionSize(i)) / float(width)))
-                self._resize_column(i, newsize)
-
-    def resizeEvent(self, event):
-        if abs(event.size().width() - event.oldSize().width()) > self.verticalScrollBar().width():
-            self.resize_columns()
-        super(MetadataBox, self).resizeEvent(event)
+        state = header.saveState()
+        config.persist["metadatabox_header_state"] = state

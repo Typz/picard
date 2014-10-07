@@ -31,7 +31,8 @@ from picard.file import File
 from picard.track import Track
 from picard.script import ScriptParser
 from picard.ui.item import Item
-from picard.util import format_time, mbid_validate, asciipunct
+from picard.util import format_time, mbid_validate
+from picard.util.textencoding import asciipunct
 from picard.cluster import Cluster
 from picard.collection import Collection, user_collections
 from picard.mbxml import (
@@ -63,6 +64,7 @@ class Album(DataObject, Item):
         self._after_load_callbacks = []
         self.unmatched_files = Cluster(_("Unmatched Files"), special=True, related_album=self, hide_if_empty=True)
         self.errors = []
+        self.status = None
 
     def __repr__(self):
         return '<Album %s %r>' % (self.id, self.metadata[u"album"])
@@ -76,7 +78,7 @@ class Album(DataObject, Item):
                 yield file
 
     def _parse_release(self, document):
-        log.debug("Loading release %r", self.id)
+        log.debug("Loading release %r ...", self.id)
         self._tracks_loaded = False
 
         release_node = document.metadata[0].release[0]
@@ -184,7 +186,7 @@ class Album(DataObject, Item):
     def _finalize_loading(self, error):
         if error:
             self.metadata.clear()
-            self.metadata['album'] = _("[could not load album %s]") % self.id
+            self.status = _("[could not load album %s]") % self.id
             del self._new_metadata
             del self._new_tracks
             self.update()
@@ -194,8 +196,9 @@ class Album(DataObject, Item):
             return
 
         if not self._tracks_loaded:
+            artists = set()
             totalalbumtracks = 0
-            albumtracknumber = 0
+            absolutetracknumber = 0
             va = self._new_metadata['musicbrainz_albumartistid'] == VARIOUS_ARTISTS_ID
 
             djmix_ars = {}
@@ -219,11 +222,12 @@ class Album(DataObject, Item):
                     tm = track.metadata
                     tm.copy(mm)
                     track_to_metadata(track_node, track)
-                    albumtracknumber += 1
-                    tm["~absolutetracknumber"] = albumtracknumber
+                    absolutetracknumber += 1
+                    tm["~absolutetracknumber"] = absolutetracknumber
                     track._customize_metadata()
 
                     self._new_metadata.length += tm.length
+                    artists.add(tm["artist"])
                     if va:
                         tm["compilation"] = "1"
 
@@ -237,7 +241,8 @@ class Album(DataObject, Item):
 
             for track in self._new_tracks:
                 track.metadata["~totalalbumtracks"] = totalalbumtracks
-
+                if len(artists) > 1:
+                    track.metadata["~multiartist"] = "1"
             del self._release_node
             self._tracks_loaded = True
 
@@ -270,9 +275,18 @@ class Album(DataObject, Item):
             del self._new_metadata
             del self._new_tracks
             self.loaded = True
+            self.status = None
             self.match_files(self.unmatched_files.files)
             self.update()
-            self.tagger.window.set_statusbar_message(_('Album %s loaded'), self.id, timeout=3000)
+            self.tagger.window.set_statusbar_message(
+                N_('Album %(id)s loaded: %(artist)s - %(album)s'),
+                {
+                    'id': self.id,
+                    'artist': self.metadata['albumartist'],
+                    'album': self.metadata['album']
+                },
+                timeout=3000
+            )
             for func in self._after_load_callbacks:
                 func()
             self._after_load_callbacks = []
@@ -281,14 +295,17 @@ class Album(DataObject, Item):
         if self._requests:
             log.info("Not reloading, some requests are still active.")
             return
-        self.tagger.window.set_statusbar_message('Loading album %s...', self.id)
+        self.tagger.window.set_statusbar_message(
+            N_('Loading album %(id)s ...'),
+            {'id': self.id}
+        )
         self.loaded = False
+        self.status = _("[loading album information]")
         if self.release_group:
             self.release_group.loaded = False
             self.release_group.folksonomy_tags.clear()
         self.metadata.clear()
         self.folksonomy_tags.clear()
-        self.metadata['album'] = _("[loading album information]")
         self.update()
         self._new_metadata = Metadata()
         self._new_tracks = []
@@ -450,12 +467,17 @@ class Album(DataObject, Item):
 
     def column(self, column):
         if column == 'title':
+            if self.status is not None:
+                title = self.status
+            else:
+                title = self.metadata['album']
             if self.tracks:
                 linked_tracks = 0
                 for track in self.tracks:
                     if track.is_linked():
                         linked_tracks += 1
-                text = u'%s\u200E (%d/%d' % (self.metadata['album'], linked_tracks, len(self.tracks))
+
+                text = u'%s\u200E (%d/%d' % (title, linked_tracks, len(self.tracks))
                 unmatched = self.get_num_unmatched_files()
                 if unmatched:
                     text += '; %d?' % (unmatched,)
@@ -463,10 +485,10 @@ class Album(DataObject, Item):
                 if unsaved:
                     text += '; %d*' % (unsaved,)
                 text += ungettext("; %i image", "; %i images",
-                        len(self.metadata.images)) % len(self.metadata.images)
+                                  len(self.metadata.images)) % len(self.metadata.images)
                 return text + ')'
             else:
-                return self.metadata['album']
+                return title
         elif column == '~length':
             length = self.metadata.length
             if length:

@@ -18,12 +18,13 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
 import os
+from functools import partial
 from PyQt4 import QtCore, QtGui, QtNetwork
 from picard import config, log
 from picard.album import Album
+from picard.coverart.image import CoverArtImage, CoverArtImageError
 from picard.track import Track
 from picard.file import File
-from picard.metadata import is_front_image
 from picard.util import webbrowser2, encode_filename
 
 
@@ -133,7 +134,7 @@ class CoverArtBox(QtGui.QGroupBox):
         if self.data:
             if pixmap is None:
                 pixmap = QtGui.QPixmap()
-                pixmap.loadFromData(self.data["data"])
+                pixmap.loadFromData(self.data.data)
             if not pixmap.isNull():
                 label = str(pixmap.width()) + " x " + str(pixmap.height())
                 offx, offy, w, h = (1, 1, 121, 121)
@@ -156,7 +157,7 @@ class CoverArtBox(QtGui.QGroupBox):
         data = None
         if metadata and metadata.images:
             for image in metadata.images:
-                if is_front_image(image):
+                if image.is_front_image():
                     data = image
                     break
                 self.currentImage += 1
@@ -211,8 +212,9 @@ class CoverArtBox(QtGui.QGroupBox):
             if url.hasQuery():
                 path += '?' + url.encodedQuery()
             self.tagger.xmlws.get(url.encodedHost(), url.port(80), path,
-                self.on_remote_image_fetched, xml=False,
-                priority=True, important=True)
+                                  partial(self.on_remote_image_fetched, url),
+                                  xml=False,
+                                  priority=True, important=True)
         elif url.scheme() == 'file':
             path = encode_filename(unicode(url.toLocalFile()))
             if os.path.exists(path):
@@ -220,14 +222,14 @@ class CoverArtBox(QtGui.QGroupBox):
                 mime = 'image/png' if path.lower().endswith('.png') else 'image/jpeg'
                 data = f.read()
                 f.close()
-                self.load_remote_image(mime, data)
+                self.load_remote_image(url, mime, data)
 
-    def on_remote_image_fetched(self, data, reply, error):
+    def on_remote_image_fetched(self, url, data, reply, error):
         mime = reply.header(QtNetwork.QNetworkRequest.ContentTypeHeader)
         if mime in ('image/jpeg', 'image/png'):
-            self.load_remote_image(mime, data)
+            self.load_remote_image(url, mime, data)
         elif reply.url().hasQueryItem("imgurl"):
-            #This may be a google images result, try to get the URL which is encoded in the query
+            # This may be a google images result, try to get the URL which is encoded in the query
             url = QtCore.QUrl(reply.url().queryItemValue("imgurl"))
             self.fetch_remote_image(url)
         else:
@@ -257,26 +259,32 @@ class CoverArtBox(QtGui.QGroupBox):
             self.__set_data(None)
             self.__update_image_count()
 
-    def load_remote_image(self, mime, data):
-        pixmap = QtGui.QPixmap()
-        if not pixmap.loadFromData(data):
-            log.warning("Can't load image")
+    def load_remote_image(self, url, mime, data):
+        try:
+            coverartimage = CoverArtImage(
+                url=url.toString(),
+                data=data
+            )
+        except CoverArtImageError as e:
+            log.warning("Can't load image: %s" % unicode(e))
             return
+        pixmap = QtGui.QPixmap()
+        pixmap.loadFromData(data)
         self.__set_data([mime, data], pixmap=pixmap)
         if isinstance(self.item, Album):
             album = self.item
-            album.metadata.add_image(mime, data)
+            album.metadata.append_image(coverartimage)
             for track in album.tracks:
-                track.metadata.add_image(mime, data)
+                track.metadata.append_image(coverartimage)
             for file in album.iterfiles():
-                file.metadata.add_image(mime, data)
+                file.metadata.append_image(coverartimage)
         elif isinstance(self.item, Track):
             track = self.item
-            track.metadata.add_image(mime, data)
+            track.metadata.append_image(coverartimage)
             for file in track.iterfiles():
-                file.metadata.add_image(mime, data)
+                file.metadata.append_image(coverartimage)
         elif isinstance(self.item, File):
             file = self.item
-            file.metadata.add_image(mime, data)
+            file.metadata.append_image(coverartimage)
         self.currentImage = len(self.metadata.images) - 1
         self.__update_image_count()

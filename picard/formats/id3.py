@@ -20,10 +20,12 @@
 import mutagen.apev2
 import mutagen.mp3
 import mutagen.trueaudio
+import re
 from collections import defaultdict
 from mutagen import id3
 from picard import config, log
-from picard.metadata import Metadata, save_this_image_to_tags, MULTI_VALUED_JOINER
+from picard.coverart.image import TagCoverArtImage, CoverArtImageError
+from picard.metadata import Metadata
 from picard.file import File
 from picard.formats.mutagenext import compatid3
 from picard.util import encode_filename, sanitize_date
@@ -91,6 +93,10 @@ def image_type_as_id3_num(texttype):
     return __ID3_IMAGE_TYPE_MAP.get(texttype, 0)
 
 
+def types_from_id3(id3type):
+    return [unicode(image_type_from_id3_num(id3type))]
+
+
 class ID3File(File):
 
     """Generic ID3-based file."""
@@ -104,37 +110,41 @@ class ID3File(File):
     }
 
     __translate = {
+        # In same sequence as defined at http://id3.org/id3v2.4.0-frames
+        'TIT1': 'grouping',
+        'TIT2': 'title',
+        'TIT3': 'subtitle',
+        'TALB': 'album',
+        'TSST': 'discsubtitle',
+        'TSRC': 'isrc',
         'TPE1': 'artist',
         'TPE2': 'albumartist',
         'TPE3': 'conductor',
         'TPE4': 'remixer',
-        'TCOM': 'composer',
-        'TCON': 'genre',
-        'TALB': 'album',
-        'TIT1': 'grouping',
-        'TIT2': 'title',
-        'TIT3': 'subtitle',
-        'TSST': 'discsubtitle',
         'TEXT': 'lyricist',
-        'TCMP': 'compilation',
-        'TDRC': 'date',
-        'TDOR': 'originaldate',
-        'COMM': 'comment',
-        'TMOO': 'mood',
-        'TMED': 'media',
-        'TBPM': 'bpm',
-        'WOAR': 'website',
-        'WCOP': 'license',
-        'TSRC': 'isrc',
+        'TCOM': 'composer',
         'TENC': 'encodedby',
+        'TBPM': 'bpm',
+        'TLAN': 'language',
+        'TCON': 'genre',
+        'TMED': 'media',
+        'TMOO': 'mood',
         'TCOP': 'copyright',
+        'TPUB': 'label',
+        'TDOR': 'originaldate',
+        'TDRC': 'date',
+        'TSSE': 'encodersettings',
         'TSOA': 'albumsort',
-        'TSO2': 'albumartistsort',
         'TSOP': 'artistsort',
         'TSOT': 'titlesort',
+        'WCOP': 'license',
+        'WOAR': 'website',
+        'COMM': 'comment',
+
+        # The following are informal iTunes extensions to id3v2:
+        'TCMP': 'compilation',
         'TSOC': 'composersort',
-        'TPUB': 'label',
-        'TLAN': 'language',
+        'TSO2': 'albumartistsort',
     }
     __rtranslate = dict([(v, k) for k, v in __translate.iteritems()])
 
@@ -161,8 +171,10 @@ class ID3File(File):
         'MusicMagic Fingerprint': 'musicip_fingerprint',
         'Artists': 'artists',
         'Work': 'work',
+        'Writer': 'writer',
     }
     __rtranslate_freetext = dict([(v, k) for k, v in __translate_freetext.iteritems()])
+    __translate_freetext['writer'] = 'writer'  # For backward compatibility of case
 
     _tipl_roles = {
         'engineer': 'engineer',
@@ -175,10 +187,10 @@ class ID3File(File):
 
     __other_supported_tags = ("discnumber", "tracknumber",
                               "totaldiscs", "totaltracks")
-
-    def __init__(self, filename):
-        super(ID3File, self).__init__(filename)
-        self.metadata = ID3Metadata()
+    __tag_re_parse = {
+        'TRCK': re.compile(r'^(?P<tracknumber>\d+)(?:/(?P<totaltracks>\d+))?$'),
+        'TPOS': re.compile(r'^(?P<discnumber>\d+)(?:/(?P<totaldiscs>\d+))?$')
+    }
 
     def _load(self, filename):
         log.debug("Loading file %r", filename)
@@ -239,24 +251,28 @@ class ID3File(File):
                 metadata.add(name, unicode(frame.text))
             elif frameid == 'UFID' and frame.owner == 'http://musicbrainz.org':
                 metadata['musicbrainz_recordingid'] = frame.data.decode('ascii', 'ignore')
-            elif frameid == 'TRCK':
-                value = frame.text[0].split('/')
-                if len(value) > 1:
-                    metadata['tracknumber'], metadata['totaltracks'] = value[:2]
+            elif frameid in self.__tag_re_parse.keys():
+                m = self.__tag_re_parse[frameid].search(frame.text[0])
+                if m:
+                    for name, value in m.groupdict().iteritems():
+                        if value is not None:
+                            metadata[name] = value
                 else:
-                    metadata['tracknumber'] = value[0]
-            elif frameid == 'TPOS':
-                value = frame.text[0].split('/')
-                if len(value) > 1:
-                    metadata['discnumber'], metadata['totaldiscs'] = value[:2]
-                else:
-                    metadata['discnumber'] = value[0]
+                    log.error("Invalid %s value '%s' dropped in %r", frameid, frame.text[0], filename)
             elif frameid == 'APIC':
-                extras = {
-                    'desc': frame.desc,
-                    'type': image_type_from_id3_num(frame.type)
-                }
-                metadata.add_image(frame.mime, frame.data, extras=extras)
+                try:
+                    coverartimage = TagCoverArtImage(
+                        file=filename,
+                        tag=frameid,
+                        types=types_from_id3(frame.type),
+                        comment=frame.desc,
+                        support_types=True,
+                        data=frame.data,
+                    )
+                except CoverArtImageError as e:
+                    log.error('Cannot load image from %r: %s' % (filename, e))
+                else:
+                    metadata.append_image(coverartimage)
             elif frameid == 'POPM':
                 # Rating in ID3 ranges from 0 to 255, normalize this to the range 0 to 5
                 if frame.email == config.setting['rating_user_email']:
@@ -281,7 +297,7 @@ class ID3File(File):
 
         if config.setting['clear_existing_tags']:
             tags.clear()
-        if config.setting['save_images_to_tags'] and metadata.images:
+        if metadata.images_to_be_saved_to_tags:
             tags.delall('APIC')
 
         if config.setting['write_id3v1']:
@@ -304,27 +320,24 @@ class ID3File(File):
                 text = metadata['discnumber']
             tags.add(id3.TPOS(encoding=0, text=text))
 
-        if config.setting['save_images_to_tags']:
-            # This is necessary because mutagens HashKey for APIC frames only
-            # includes the FrameID (APIC) and description - it's basically
-            # impossible to save two images, even of different types, without
-            # any description.
-            counters = defaultdict(lambda: 0)
-            for image in metadata.images:
-                desc = desctag = image['desc']
-                if not save_this_image_to_tags(image):
-                    continue
-                if counters[desc] > 0:
-                    if desc:
-                        desctag = "%s (%i)" % (desc, counters[desc])
-                    else:
-                        desctag = "(%i)" % counters[desc]
-                counters[desc] += 1
-                tags.add(id3.APIC(encoding=0,
-                                  mime=image["mime"],
-                                  type=image_type_as_id3_num(image['type']),
-                                  desc=desctag,
-                                  data=image["data"]))
+        # This is necessary because mutagens HashKey for APIC frames only
+        # includes the FrameID (APIC) and description - it's basically
+        # impossible to save two images, even of different types, without
+        # any description.
+        counters = defaultdict(lambda: 0)
+        for image in metadata.images_to_be_saved_to_tags:
+            desc = desctag = image.comment
+            if counters[desc] > 0:
+                if desc:
+                    desctag = "%s (%i)" % (desc, counters[desc])
+                else:
+                    desctag = "(%i)" % counters[desc]
+            counters[desc] += 1
+            tags.add(id3.APIC(encoding=0,
+                              mime=image.mimetype,
+                              type=image_type_as_id3_num(image.maintype),
+                              desc=desctag,
+                              data=image.data))
 
         tmcl = mutagen.id3.TMCL(encoding=encoding, people=[])
         tipl = mutagen.id3.TIPL(encoding=encoding, people=[])
@@ -422,8 +435,40 @@ class ID3File(File):
     def supports_tag(self, name):
         return name in self.__rtranslate or name in self.__rtranslate_freetext\
             or name.startswith('performer:')\
-            or name.startswith('lyrics:')\
+            or name.startswith('lyrics:') or name == 'lyrics'\
             or name in self.__other_supported_tags
+
+    @property
+    def new_metadata(self):
+        if not config.setting["write_id3v23"]:
+            return self.metadata
+
+        copy = Metadata()
+        copy.copy(self.metadata)
+
+        join_with = config.setting["id3v23_join_with"]
+        copy.multi_valued_joiner = join_with
+
+        for name, values in copy.rawitems():
+            # ID3v23 can only save TDOR dates in YYYY format. Mutagen cannot
+            # handle ID3v23 dates which are YYYY-MM rather than YYYY or
+            # YYYY-MM-DD.
+
+            if name == "originaldate":
+                values = [v[:4] for v in values]
+            elif name == "date":
+                values = [(v[:4] if len(v) < 10 else v) for v in values]
+
+            # If this is a multi-valued field, then it needs to be flattened,
+            # unless it's TIPL or TMCL which can still be multi-valued.
+
+            if (len(values) > 1 and not name in ID3File._rtipl_roles
+                    and not name.startswith("performer:")):
+                values = [join_with.join(values)]
+
+            copy[name] = values
+
+        return copy
 
 
 class MP3File(ID3File):
@@ -436,7 +481,10 @@ class MP3File(ID3File):
 
     def _info(self, metadata, file):
         super(MP3File, self)._info(metadata, file)
-        metadata['~format'] = 'MPEG-1 Layer %d' % file.info.layer
+        id3version = ''
+        if file.tags is not None and file.info.layer == 3:
+            id3version = ' - ID3v%d.%d' % (file.tags.version[0], file.tags.version[1])
+        metadata['~format'] = 'MPEG-1 Layer %d%s' % (file.info.layer, id3version)
 
 
 class TrueAudioFile(ID3File):
@@ -449,48 +497,3 @@ class TrueAudioFile(ID3File):
     def _info(self, metadata, file):
         super(TrueAudioFile, self)._info(metadata, file)
         metadata['~format'] = self.NAME
-
-
-class ID3Metadata(Metadata):
-
-    """Subclass of Metadata to return New values in id3v23 format if Picard is set to write ID3v23."""
-
-    def getall(self, name):
-        values = super(ID3Metadata, self).getall(name)
-        vals = self.__id3v23_date(name, values)
-        # if this is a multi-value field then it needs to be flattened
-        # unless it is TIPL or TMCL which can still be multi-value.
-        if (config.setting["write_id3v23"] and len(values) > 1 and
-                not name in ID3File._rtipl_roles and
-                not name.startswith("performer:")):
-            return [config.setting["id3v23_join_with"].join(vals)]
-        else:
-            return vals
-
-    def get(self, name, default=None):
-        values = dict.get(self, name, None)
-        if not values:
-            return default
-        vals = self.__id3v23_date(name, values)
-        if config.setting["write_id3v23"]:
-            return config.setting["id3v23_join_with"].join(vals)
-        else:
-            return MULTI_VALUED_JOINER.join(vals)
-
-    def __id3v23_date(self, name, values):
-        # id3v23 can only save TDOR dates in yyyy format (cf. id3v24 and MB who provides dates in yyyy-mm-dd format)
-        # mutagen cannot handle id3v23 dates which are yyyy-mm rather than yyyy or yyyy-mm-dd
-        if not config.setting["write_id3v23"]:
-            return values
-        elif name == "originaldate":
-            return [v[:4] for v in values]
-        elif name == "date":
-            return [self.__fix_date_mm(v) for v in values]
-        else:
-            return values
-
-    def __fix_date_mm(self, value):
-        # Return yyyy if date format is yyyy-mm
-        if len(value) < 10:
-            return value[:4]
-        return value
